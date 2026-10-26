@@ -12,6 +12,12 @@ x-app-env: &app-env
   BUCKET_INGEST: ${BUCKET_INGEST:-media-ingest-poc}
   BUCKET_DERIVED: ${BUCKET_DERIVED:-media-derived-poc}
   BUCKET_PUBLISHED: ${BUCKET_PUBLISHED:-media-published-poc}
+  QUEUE_LIGHT_PROCESSING_URL: http://localstack:4566/000000000000/${QUEUE_LIGHT_PROCESSING:-light-processing}
+  QUEUE_LIGHT_PROCESSING_DLQ_URL: http://localstack:4566/000000000000/${QUEUE_LIGHT_PROCESSING_DLQ:-light-processing-dlq}
+  QUEUE_AI_REQUESTS_URL: http://localstack:4566/000000000000/${QUEUE_AI_REQUESTS:-ai-requests}
+  QUEUE_AI_REQUESTS_DLQ_URL: http://localstack:4566/000000000000/${QUEUE_AI_REQUESTS_DLQ:-ai-requests-dlq}
+  SQS_MAX_RECEIVE_COUNT: ${SQS_MAX_RECEIVE_COUNT:-3}
+  UPLOAD_STAGING_PREFIX: ${UPLOAD_STAGING_PREFIX:-staging/}
 
 x-app: &app
   build: ./services/_stub
@@ -34,12 +40,18 @@ services:
     ports:
       - "127.0.0.1:${HOST_PORT_LOCALSTACK:-4566}:4566"
     environment:
-      SERVICES: s3,sqs,events,stepfunctions
+      SERVICES: s3,sqs,events,stepfunctions,sts
       LOCALSTACK_AUTH_TOKEN: ${LOCALSTACK_AUTH_TOKEN:-}
       PERSISTENCE: "0"
       BUCKET_INGEST: ${BUCKET_INGEST:-media-ingest-poc}
       BUCKET_DERIVED: ${BUCKET_DERIVED:-media-derived-poc}
       BUCKET_PUBLISHED: ${BUCKET_PUBLISHED:-media-published-poc}
+      QUEUE_LIGHT_PROCESSING: ${QUEUE_LIGHT_PROCESSING:-light-processing}
+      QUEUE_LIGHT_PROCESSING_DLQ: ${QUEUE_LIGHT_PROCESSING_DLQ:-light-processing-dlq}
+      QUEUE_AI_REQUESTS: ${QUEUE_AI_REQUESTS:-ai-requests}
+      QUEUE_AI_REQUESTS_DLQ: ${QUEUE_AI_REQUESTS_DLQ:-ai-requests-dlq}
+      SQS_MAX_RECEIVE_COUNT: ${SQS_MAX_RECEIVE_COUNT:-3}
+      UPLOAD_STAGING_PREFIX: ${UPLOAD_STAGING_PREFIX:-staging/}
     volumes:
       - ./infra/localstack/init:/etc/localstack/init/ready.d:ro
     networks: [canvas-net]

@@ -11,6 +11,9 @@ PUBLISHED="${BUCKET_PUBLISHED:-media-published-poc}"
 # Whole check runs in one container shell; the init hook may finish after "healthy".
 docker compose exec -T -e B_INGEST="$INGEST" -e B_DERIVED="$DERIVED" -e B_PUBLISHED="$PUBLISHED" localstack sh -eu -c '
 export AWS_ENDPOINT_URL=http://localhost:4566 AWS_ACCESS_KEY_ID=test AWS_SECRET_ACCESS_KEY=test AWS_DEFAULT_REGION=us-east-1
+
+# aws-cli 1.x ignores AWS_ENDPOINT_URL for some services (SQS went to queue.amazonaws.com), so pass it explicitly
+aws() { command aws --endpoint-url "$AWS_ENDPOINT_URL" "$@"; }
 for b in "$B_INGEST" "$B_DERIVED" "$B_PUBLISHED"; do
   i=0
   until aws s3api head-bucket --bucket "$b" >/dev/null 2>&1; do

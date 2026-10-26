@@ -34,11 +34,19 @@ Host ports 5433 and 6380 are used (not 5432/6379) to avoid clashing with local P
 
 `media-ingest-poc`, `media-derived-poc`, `media-published-poc` are created on LocalStack start by `infra/localstack/init/01-buckets.sh` (idempotent; CORS on ingest and published). Check with `make verify-s3` (PUT, HEAD, GET, DELETE on each bucket).
 
+## Queues and events (POC-003)
+
+Created on LocalStack start by `infra/localstack/init/02-queues-events.sh` (idempotent):
+
+- Queues: `light-processing`, `ai-requests`, each with a DLQ (`*-dlq`, `maxReceiveCount` 3).
+- Uploads go under `staging/` in `media-ingest-poc`. S3 sends object events to the default EventBridge bus, and rule `ingest-staging-created` routes only the `staging/` prefix to `light-processing`.
+- Check with `make verify-events` (routing, payload, prefix filter, redrive config, retry then DLQ). `make verify` runs S3 and event checks.
+
 ## Current state
 
-POC-001/002: all services start and buckets exist. Services start and report healthy. Canvas API and workers are stubs (`services/_stub`) that only answer `/healthz`.
+POC-001 to 003: all services start, buckets and queues exist. Services start and report healthy. Canvas API and workers are stubs (`services/_stub`) that only answer `/healthz`.
 
 ## Notes
 
-- LocalStack is pinned to `2026.10.2` (needs `LOCALSTACK_AUTH_TOKEN` in `.env`, never commit it). Scripts use the bundled `aws` CLI because `awslocal` is deprecated, and the image has no `curl`.
+- LocalStack is pinned to `2026.10.2` (needs `LOCALSTACK_AUTH_TOKEN` in `.env`, never commit it). Scripts use the bundled `aws` CLI (always with an explicit `--endpoint-url`) because `awslocal` is deprecated, and the image has no `curl`.
 - Presigned URLs must use `S3_PUBLIC_ENDPOINT`; container-to-container calls use `AWS_ENDPOINT_URL`.

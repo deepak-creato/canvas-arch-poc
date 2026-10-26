@@ -1,4 +1,4 @@
-.PHONY: up down reset logs ps verify-s3
+.PHONY: up down reset logs ps verify-s3 verify-events verify
 
 up:
 	@test -f .env || cp .env.example .env
@@ -18,3 +18,8 @@ ps:
 
 verify-s3:
 	@./infra/scripts/verify-s3.sh
+
+verify-events:
+	@./infra/scripts/verify-events.sh
+
+verify: verify-s3 verify-events
