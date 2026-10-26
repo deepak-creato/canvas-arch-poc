@@ -1,7 +1,8 @@
-import { BadRequestException, ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Inject, Injectable, NotFoundException, UnprocessableEntityException } from '@nestjs/common';
 import { Pool, PoolClient } from 'pg';
 import { config } from '../../../shared/config';
 import { log } from '../../../shared/log';
+import { addRevisionReferences, AssetReferenceError, extractAssetIds } from '../../../shared/refs';
 import { PG_POOL } from '../tokens';
 import { contentHash } from './canonical';
 
@@ -19,6 +20,7 @@ interface DraftRow {
 }
 
 interface RevisionRow {
+  id: string;
   revision_no: number;
   document: unknown;
   content_hash: string;
@@ -39,7 +41,7 @@ export const draftView = (d: DraftRow) => ({
   updated_at: d.updated_at.toISOString(),
 });
 
-export const revisionView = (r: RevisionRow) => ({
+export const revisionView = (r: Omit<RevisionRow, 'id'>) => ({
   revision_no: r.revision_no,
   document: r.document,
   content_hash: r.content_hash,
@@ -55,9 +57,7 @@ export class DraftsService {
 
   async create(ownerId: string, document: Record<string, unknown>) {
     assertDocumentSize(document);
-    const client = await this.pool.connect();
-    try {
-      await client.query('BEGIN');
+    return this.inTx(async (client) => {
       const draft = (
         await client.query<DraftRow>(
           `INSERT INTO canvas_draft (owner_id, head_revision_no) VALUES ($1, 1) RETURNING *`,
@@ -71,15 +71,10 @@ export class DraftsService {
           [draft.id, JSON.stringify(document), contentHash(document)],
         )
       ).rows[0];
-      await client.query('COMMIT');
+      await this.attachReferences(client, ownerId, rev);
       log('info', 'draft created', { draft_id: draft.id, owner_id: ownerId });
       return { ...draftView(draft), revision: revisionView(rev) };
-    } catch (e) {
-      await client.query('ROLLBACK').catch(() => undefined);
-      throw e;
-    } finally {
-      client.release();
-    }
+    });
   }
 
   async get(ownerId: string, draftId: string) {
@@ -117,6 +112,7 @@ export class DraftsService {
       if (head.content_hash === hash) return { ...draftView(draft), unchanged: true, revision: revisionView(head) };
 
       const rev = await this.appendRevision(client, draft, document, hash, 'USER_SAVE', null);
+      await this.attachReferences(client, ownerId, rev);
       log('info', 'revision saved', { draft_id: draft.id, revision_no: rev.revision_no, owner_id: ownerId });
       return { ...draftView({ ...draft, head_revision_no: rev.revision_no }), unchanged: false, revision: revisionView(rev) };
     });
@@ -154,6 +150,18 @@ export class DraftsService {
     ).rows[0];
     await client.query(`UPDATE canvas_draft SET head_revision_no = $2, last_activity_at = now() WHERE id = $1`, [draft.id, no]);
     return rev;
+  }
+
+  /** Writes the revision's media_reference rows; a bad reference aborts the whole transaction. */
+  private async attachReferences(client: PoolClient, ownerId: string, rev: RevisionRow) {
+    try {
+      return await addRevisionReferences(client, ownerId, rev.id, extractAssetIds(rev.document));
+    } catch (e) {
+      if (e instanceof AssetReferenceError) {
+        throw new UnprocessableEntityException({ code: e.code, message: e.message, asset_id: e.assetId });
+      }
+      throw e;
+    }
   }
 
   private async inTx<T>(fn: (c: PoolClient) => Promise<T>): Promise<T> {

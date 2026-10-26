@@ -1,5 +1,8 @@
 // Integration test: needs the compose stack (make up) with canvas-api running.
-import { randomBytes, randomUUID } from 'crypto';
+import { execSync } from 'child_process';
+import { createHash, randomBytes, randomUUID } from 'crypto';
+import { readFileSync } from 'fs';
+import { resolve } from 'path';
 
 const API = process.env.API_URL ?? 'http://127.0.0.1:3000';
 const owner = () => `d-${randomBytes(4).toString('hex')}`;
@@ -11,6 +14,26 @@ const call = (o: string | null, method: string, path: string, body?: unknown) =>
     body: body !== undefined ? JSON.stringify(body) : undefined,
   });
 const json = async (r: Response) => (await r.json()) as any;
+
+const COMPOSE = resolve(__dirname, '../../../docker-compose.yml');
+const FIX = resolve(__dirname, '../../../fixtures');
+const sql = (q: string) => execSync(`docker compose -f ${COMPOSE} exec -T postgres psql -U canvas -tA -c "${q}"`).toString().trim();
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/** Uploads a fixture and waits for VALIDATED. Fixtures are keyed by owner, so each test owner gets its own asset. */
+async function validatedAsset(o: string, name = 'sample-5.jpg', ct = 'image/jpeg'): Promise<string> {
+  const bytes = readFileSync(`${FIX}/${name}`);
+  const sha256 = createHash('sha256').update(bytes).digest('hex');
+  const res = await json(await call(o, 'POST', '/v1/uploads', { sha256, content_type: ct, size_bytes: bytes.length, filename: name }));
+  await fetch(res.upload_url, { method: 'PUT', headers: res.upload_headers, body: new Uint8Array(bytes) });
+  for (let i = 0; i < 120; i++) {
+    const a = await json(await call(o, 'GET', `/v1/assets/${res.asset_id}`));
+    if (a.upload_status === 'VALIDATED') return res.asset_id;
+    if (a.upload_status === 'REJECTED') throw new Error('fixture rejected');
+    await sleep(500);
+  }
+  throw new Error('asset never validated');
+}
 
 describe('drafts: create, read, list (POC-014)', () => {
   it('creates a draft with revision 1 and reads it back', async () => {
@@ -55,11 +78,7 @@ describe('drafts: create, read, list (POC-014)', () => {
   });
 });
 
-const jobCount = () => {
-  const { execSync } = require('child_process');
-  const compose = require('path').resolve(__dirname, '../../../docker-compose.yml');
-  return Number(execSync(`docker compose -f ${compose} exec -T postgres psql -U canvas -tA -c "SELECT count(*) FROM processing_job"`).toString().trim());
-};
+const jobCount = () => Number(sql('SELECT count(*) FROM processing_job'));
 
 describe('drafts: immutable revisions (POC-015)', () => {
   it('increments the revision on change and skips an unchanged document', async () => {
@@ -142,5 +161,65 @@ describe('drafts: optimistic concurrency (POC-016)', () => {
     expect(codes).toEqual([200, 409, 409, 409, 409, 409, 409, 409]);
     const list = await json(await call(o, 'GET', `/v1/drafts/${d.draft_id}/revisions`));
     expect(list.revisions.map((r: any) => r.revision_no)).toEqual([2, 1]);
+  });
+});
+
+const refs = (draftId: string) =>
+  sql(`SELECT r.revision_no || ':' || m.asset_id FROM media_reference m JOIN canvas_revision r ON r.id = m.revision_id WHERE r.draft_id = '${draftId}' ORDER BY 1`)
+    .split('\n')
+    .filter(Boolean);
+
+describe('drafts: revision references (POC-017)', () => {
+  it('records exact revision-to-asset usage, including nested and repeated ids', async () => {
+    const o = owner();
+    const a1 = await validatedAsset(o);
+    const a2 = await validatedAsset(o, 'sample-1.png', 'image/png');
+    const d = await json(await call(o, 'POST', '/v1/drafts', {}));
+
+    const doc = { elements: [{ id: 'x', asset_id: a1 }, { id: 'g', children: [{ asset_id: a2 }, { asset_id: a1 }] }] };
+    expect((await call(o, 'PUT', `/v1/drafts/${d.draft_id}`, { base_revision: 1, document: doc })).status).toBe(200);
+    expect(refs(d.draft_id)).toEqual([`2:${a1}`, `2:${a2}`].sort());
+
+    // Revision 3 drops a2; revision 2 keeps its reference.
+    await call(o, 'PUT', `/v1/drafts/${d.draft_id}`, { base_revision: 2, document: { elements: [{ asset_id: a1 }] } });
+    expect(refs(d.draft_id)).toEqual([`2:${a1}`, `2:${a2}`, `3:${a1}`].sort());
+  });
+
+  it('writes references for the starting document of a new draft', async () => {
+    const o = owner();
+    const a = await validatedAsset(o);
+    const d = await json(await call(o, 'POST', '/v1/drafts', { document: { elements: [{ asset_id: a }] } }));
+    expect(refs(d.draft_id)).toEqual([`1:${a}`]);
+  });
+
+  it('rejects bad references and writes no revision or reference', async () => {
+    const o = owner();
+    const mine = await validatedAsset(o);
+    const d = await json(await call(o, 'POST', '/v1/drafts', {}));
+    const put = (document: unknown) => call(o, 'PUT', `/v1/drafts/${d.draft_id}`, { base_revision: 1, document });
+
+    const malformed = await put({ elements: [{ asset_id: 'nope' }] });
+    expect([malformed.status, (await json(malformed)).code]).toEqual([422, 'INVALID_ASSET_REFERENCE']);
+
+    const missing = await put({ elements: [{ asset_id: mine }, { asset_id: randomUUID() }] });
+    expect([missing.status, (await json(missing)).code]).toEqual([422, 'ASSET_NOT_FOUND']);
+
+    const foreign = await put({ elements: [{ asset_id: await validatedAsset(owner()) }] });
+    expect([foreign.status, (await json(foreign)).code]).toEqual([422, 'ASSET_NOT_FOUND']);
+
+    sql(`UPDATE media_asset SET retention_status = 'DELETING' WHERE id = '${mine}'`);
+    const deleting = await put({ elements: [{ asset_id: mine }] });
+    expect([deleting.status, (await json(deleting)).code]).toEqual([422, 'ASSET_NOT_REFERENCEABLE']);
+    sql(`UPDATE media_asset SET retention_status = 'UNATTACHED' WHERE id = '${mine}'`);
+
+    const pendingBytes = readFileSync(`${FIX}/sample-2.jpg`);
+    const pending = await json(
+      await call(o, 'POST', '/v1/uploads', { sha256: createHash('sha256').update(pendingBytes).digest('hex'), content_type: 'image/jpeg', size_bytes: pendingBytes.length, filename: 'p.jpg' }),
+    );
+    const notReady = await put({ elements: [{ asset_id: pending.asset_id }] });
+    expect([notReady.status, (await json(notReady)).code]).toEqual([422, 'ASSET_NOT_READY']);
+
+    expect(refs(d.draft_id)).toEqual([]);
+    expect((await json(await call(o, 'GET', `/v1/drafts/${d.draft_id}`))).head_revision).toBe(1);
   });
 });
