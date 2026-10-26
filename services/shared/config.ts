@@ -12,6 +12,8 @@ export const config = {
   maxVideoBytes: int(process.env.MAX_VIDEO_BYTES, 200 * 1024 * 1024),
   queueLightProcessingUrl:
     process.env.QUEUE_LIGHT_PROCESSING_URL ?? 'http://localhost:4566/000000000000/light-processing',
+  queueLightProcessingDlqUrl:
+    process.env.QUEUE_LIGHT_PROCESSING_DLQ_URL ?? 'http://localhost:4566/000000000000/light-processing-dlq',
   downloadTtlSeconds: int(process.env.DOWNLOAD_URL_TTL_SECONDS, 3600),
   queueAiRequestsUrl: process.env.QUEUE_AI_REQUESTS_URL ?? 'http://localhost:4566/000000000000/ai-requests',
   sqsMaxReceiveCount: int(process.env.SQS_MAX_RECEIVE_COUNT, 3),

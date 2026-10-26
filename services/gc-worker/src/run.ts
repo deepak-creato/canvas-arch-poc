@@ -2,11 +2,14 @@ import { Pool } from 'pg';
 import { log } from '../../shared/log';
 import { expireUploads, markUnattached } from './expire';
 import { createS3 } from '../../shared/s3';
+import { createSqs } from '../../shared/sqs';
 import { GcOptions } from './options';
 import { pruneRevisions, purgeDiscardedDrafts } from './prune';
+import { reapStuckJobs, requeueJobs } from './jobs';
 import { sweep } from './sweep';
 
 const s3 = createS3();
+const sqs = createSqs();
 
 export type Summary = Record<string, unknown>;
 
@@ -16,6 +19,8 @@ export const STEPS: Record<string, (pool: Pool, o: GcOptions) => Promise<Summary
   purgeDiscardedDrafts: async (pool, o) => ({ purged: await purgeDiscardedDrafts(pool, o) }),
   pruneRevisions: async (pool, o) => ({ pruned: await pruneRevisions(pool, o) }),
   markUnattached: async (pool, o) => ({ orphaned: await markUnattached(pool, o) }),
+  reapStuckJobs: async (pool, o) => ({ reaped: await reapStuckJobs(pool, o) }),
+  requeueJobs: async (pool, o) => ({ requeued: await requeueJobs(pool, sqs, o) }),
   sweep: async (pool, o) => ({ ...(await sweep(pool, s3, o)) }),
 };
 

@@ -1,4 +1,4 @@
-.PHONY: bootstrap teardown preflight health smoke-sfn up down reset logs ps verify-s3 verify-events verify verify-schema migrate psql test verify-m2 gc-run
+.PHONY: bootstrap teardown preflight health smoke-sfn up down reset logs ps verify-s3 verify-events verify verify-schema migrate psql test verify-m2 gc-run gc-jobs gc-dlq gc-redrive
 
 # One command from a fresh clone to a verified stack (M1 exit demo)
 bootstrap:
@@ -69,3 +69,13 @@ verify-m2:
 # One GC cycle now (optionally STEP=sweep). Prints the per-step summary.
 gc-run:
 	@curl -fsS -X POST "http://127.0.0.1:$${HOST_PORT_GC:-3104}/run$(if $(STEP),?step=$(STEP),)"; echo
+
+# Diagnose and recover (POC-035): failed or stuck jobs, DLQ contents, move DLQ messages back
+gc-jobs:
+	@curl -fsS "http://127.0.0.1:$${HOST_PORT_GC:-3104}/ops/jobs"; echo
+
+gc-dlq:
+	@curl -fsS "http://127.0.0.1:$${HOST_PORT_GC:-3104}/ops/dlq"; echo
+
+gc-redrive:
+	@curl -fsS -X POST "http://127.0.0.1:$${HOST_PORT_GC:-3104}/ops/redrive"; echo

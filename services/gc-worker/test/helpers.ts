@@ -1,5 +1,7 @@
 // Integration helpers: need the compose stack (make up). Postgres on 5433, LocalStack on 4566.
-import { randomBytes, randomUUID } from 'crypto';
+import { createHash, randomBytes, randomUUID } from 'crypto';
+import { readFileSync } from 'fs';
+import { resolve } from 'path';
 import { Pool } from 'pg';
 import { config } from '../../shared/config';
 import { GcOptions } from '../src/options';
@@ -29,6 +31,7 @@ export interface SeedAsset {
   upload_expires_at?: string;
   size_bytes?: number;
   content_type?: string;
+  sha256?: string;
 }
 
 export async function seedAsset(a: SeedAsset): Promise<{ id: string; key: string }> {
@@ -39,7 +42,7 @@ export async function seedAsset(a: SeedAsset): Promise<{ id: string; key: string
                               upload_status, retention_status, orphaned_at, upload_expires_at)
      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, COALESCE($12::timestamptz, now() + interval '15 minutes'))`,
     [
-      id, a.owner, a.kind ?? 'IMAGE', randomBytes(32).toString('hex'), a.content_type ?? 'image/png', a.size_bytes ?? 10,
+      id, a.owner, a.kind ?? 'IMAGE', a.sha256 ?? randomBytes(32).toString('hex'), a.content_type ?? 'image/png', a.size_bytes ?? 10,
       config.bucketIngest, key, a.upload_status ?? 'VALIDATED', a.retention_status ?? 'UNATTACHED', a.orphaned_at ?? null,
       a.upload_expires_at ?? null,
     ],
@@ -73,4 +76,22 @@ export async function draftWith(owner: string, ...docs: Record<string, unknown>[
     head = r.body.head_revision;
   }
   return created.body.draft_id;
+}
+
+const FIXTURE = resolve(__dirname, '../../../fixtures/sample-5.jpg');
+
+/** A real JPEG uploaded to the ingest bucket and recorded as UPLOADED, with no job yet: the light-worker can process it for real. */
+export async function seedUploadedFixture(owner: string) {
+  const { PutObjectCommand } = await import('@aws-sdk/client-s3');
+  const { createS3 } = await import('../../shared/s3');
+  const bytes = readFileSync(FIXTURE);
+  const a = await seedAsset({
+    owner,
+    upload_status: 'UPLOADED',
+    content_type: 'image/jpeg',
+    size_bytes: bytes.length,
+    sha256: createHash('sha256').update(bytes).digest('hex'),
+  });
+  await createS3().send(new PutObjectCommand({ Bucket: config.bucketIngest, Key: a.key, Body: bytes, ContentType: 'image/jpeg' }));
+  return a;
 }

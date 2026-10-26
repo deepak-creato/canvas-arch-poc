@@ -2,10 +2,14 @@ import http from 'http';
 import { config } from '../../shared/config';
 import { createPool } from '../../shared/db';
 import { log } from '../../shared/log';
+import { inspectDlq, redriveDlq } from './dlq';
+import { listProblemJobs } from './jobs';
 import { defaultOptions } from './options';
 import { runCycle } from './run';
+import { createSqs } from '../../shared/sqs';
 
 const pool = createPool();
+const sqs = createSqs();
 
 const send = (res: http.ServerResponse, code: number, body: unknown) => {
   res.writeHead(code, { 'content-type': 'application/json' });
@@ -29,6 +33,17 @@ const server = http
       } catch (e) {
         return send(res, 400, { error: String(e) });
       }
+    }
+    try {
+      // Operator endpoints (POC-035): diagnose, then recover.
+      if (url.pathname === '/ops/jobs' && req.method === 'GET') {
+        return send(res, 200, { jobs: await listProblemJobs(pool, { ...defaultOptions(), ownerId: url.searchParams.get('owner_id') ?? undefined }) });
+      }
+      if (url.pathname === '/ops/dlq' && req.method === 'GET') return send(res, 200, await inspectDlq(pool, sqs, { ownerId: url.searchParams.get('owner_id') ?? undefined }));
+      if (url.pathname === '/ops/redrive' && req.method === 'POST') return send(res, 200, await redriveDlq(pool, sqs, { ownerId: url.searchParams.get('owner_id') ?? undefined }));
+    } catch (e) {
+      log('error', 'ops request failed', { path: url.pathname, error: String(e) });
+      return send(res, 500, { error: 'INTERNAL' });
     }
     return send(res, 404, { error: 'NOT_FOUND' });
   })
