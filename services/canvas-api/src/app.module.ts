@@ -5,16 +5,19 @@ import { HealthController } from './health.controller';
 import { PG_POOL, PRESIGN_S3, S3 } from './tokens';
 import { AssetsController } from './assets/assets.controller';
 import { AssetsService } from './assets/assets.service';
+import { DraftsController } from './drafts/drafts.controller';
+import { DraftsService } from './drafts/drafts.service';
 import { CompleteService } from './uploads/complete.service';
 import { UploadsController } from './uploads/uploads.controller';
 import { UploadsService } from './uploads/uploads.service';
 
 @Module({
-  controllers: [HealthController, UploadsController, AssetsController],
+  controllers: [HealthController, UploadsController, AssetsController, DraftsController],
   providers: [
     UploadsService,
     CompleteService,
     AssetsService,
+    DraftsService,
     { provide: PG_POOL, useFactory: createPool },
     { provide: PRESIGN_S3, useFactory: createPresignS3 },
     { provide: S3, useFactory: createS3 },

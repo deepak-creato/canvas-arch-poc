@@ -14,6 +14,8 @@ export const config = {
     process.env.QUEUE_LIGHT_PROCESSING_URL ?? 'http://localhost:4566/000000000000/light-processing',
   downloadTtlSeconds: int(process.env.DOWNLOAD_URL_TTL_SECONDS, 3600),
   uploadTtlSeconds: int(process.env.UPLOAD_URL_TTL_SECONDS, 900),
+  maxDocumentBytes: int(process.env.MAX_DOCUMENT_BYTES, 2 * 1024 * 1024),
+  draftPurgeGraceDays: int(process.env.DRAFT_PURGE_GRACE_DAYS, 30),
 };
 
 // content type -> asset kind. The worker re-checks real bytes (POC-009).
