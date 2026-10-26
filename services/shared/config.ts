@@ -12,6 +12,7 @@ export const config = {
   maxVideoBytes: int(process.env.MAX_VIDEO_BYTES, 200 * 1024 * 1024),
   queueLightProcessingUrl:
     process.env.QUEUE_LIGHT_PROCESSING_URL ?? 'http://localhost:4566/000000000000/light-processing',
+  downloadTtlSeconds: int(process.env.DOWNLOAD_URL_TTL_SECONDS, 3600),
   uploadTtlSeconds: int(process.env.UPLOAD_URL_TTL_SECONDS, 900),
 };
 

@@ -111,7 +111,7 @@ export async function runDerive(
 }
 
 const markReady = (pool: Pool, id: string, metadata: Record<string, unknown>) =>
-  pool.query(`UPDATE media_rendition SET status = 'READY', error = NULL, metadata = $2::jsonb WHERE id = $1`, [
+  pool.query(`UPDATE media_rendition SET status = 'READY', error = NULL, metadata = metadata || $2::jsonb WHERE id = $1`, [
     id,
     JSON.stringify(metadata),
   ]);

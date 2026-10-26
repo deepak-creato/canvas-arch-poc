@@ -1,4 +1,4 @@
-.PHONY: bootstrap teardown preflight health smoke-sfn up down reset logs ps verify-s3 verify-events verify verify-schema migrate psql test
+.PHONY: bootstrap teardown preflight health smoke-sfn up down reset logs ps verify-s3 verify-events verify verify-schema migrate psql test verify-m2
 
 # One command from a fresh clone to a verified stack (M1 exit demo)
 bootstrap:
@@ -58,3 +58,7 @@ verify-schema:
 test:
 	cd services/canvas-api && npm test
 	cd services/light-worker && npm test -- --forceExit
+
+# M2 exit demo: 5 images + 1 video become usable, no final-tier work
+verify-m2:
+	@./infra/scripts/verify-m2.sh
