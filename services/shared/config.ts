@@ -32,6 +32,12 @@ export const config = {
   uploadTtlSeconds: int(process.env.UPLOAD_URL_TTL_SECONDS, 900),
   maxDocumentBytes: int(process.env.MAX_DOCUMENT_BYTES, 2 * 1024 * 1024),
   draftPurgeGraceDays: int(process.env.DRAFT_PURGE_GRACE_DAYS, 30),
+  // M6 garbage collection. All durations in seconds; production-style defaults, minutes in .env.example.
+  gcIntervalSeconds: int(process.env.GC_INTERVAL_SECONDS, 0),
+  gcBatchSize: int(process.env.GC_BATCH_SIZE, 50),
+  gcUploadExpiryGraceSeconds: int(process.env.GC_UPLOAD_EXPIRY_GRACE_SECONDS, 600),
+  gcUnattachedGraceSeconds: int(process.env.GC_UNATTACHED_GRACE_SECONDS, 24 * 3600),
+  gcOrphanGraceSeconds: int(process.env.GC_ORPHAN_GRACE_SECONDS, 7 * 24 * 3600),
 };
 
 // content type -> asset kind. The worker re-checks real bytes (POC-009).

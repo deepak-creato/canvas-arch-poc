@@ -1,4 +1,4 @@
-.PHONY: bootstrap teardown preflight health smoke-sfn up down reset logs ps verify-s3 verify-events verify verify-schema migrate psql test verify-m2
+.PHONY: bootstrap teardown preflight health smoke-sfn up down reset logs ps verify-s3 verify-events verify verify-schema migrate psql test verify-m2 gc-run
 
 # One command from a fresh clone to a verified stack (M1 exit demo)
 bootstrap:
@@ -60,7 +60,12 @@ test:
 	cd services/light-worker && npm test -- --forceExit
 	cd services/ai-worker && npm test -- --forceExit
 	cd services/mock-transcoder && npm test -- --forceExit
+	cd services/gc-worker && npm test -- --forceExit
 
 # M2 exit demo: 5 images + 1 video become usable, no final-tier work
 verify-m2:
 	@./infra/scripts/verify-m2.sh
+
+# One GC cycle now (optionally STEP=sweep). Prints the per-step summary.
+gc-run:
+	@curl -fsS -X POST "http://127.0.0.1:$${HOST_PORT_GC:-3104}/run$(if $(STEP),?step=$(STEP),)"; echo

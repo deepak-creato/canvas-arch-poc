@@ -191,9 +191,20 @@ services:
 
   gc-worker:
     <<: *app
+    build:
+      context: ./services
+      dockerfile: gc-worker/Dockerfile
+    ports:
+      - "127.0.0.1:${HOST_PORT_GC:-3104}:3104"
     environment:
       <<: *app-env
       SERVICE_NAME: gc-worker
+      # 0 = no timer; run a cycle with `make gc-run` (POST /run). Keeps integration tests deterministic.
+      GC_INTERVAL_SECONDS: ${GC_INTERVAL_SECONDS:-0}
+      GC_BATCH_SIZE: ${GC_BATCH_SIZE:-50}
+      GC_UPLOAD_EXPIRY_GRACE_SECONDS: ${GC_UPLOAD_EXPIRY_GRACE_SECONDS:-300}
+      GC_UNATTACHED_GRACE_SECONDS: ${GC_UNATTACHED_GRACE_SECONDS:-300}
+      GC_ORPHAN_GRACE_SECONDS: ${GC_ORPHAN_GRACE_SECONDS:-300}
       PORT: "3104"
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3104/healthz"]

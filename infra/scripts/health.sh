@@ -31,6 +31,7 @@ check "postgres select 1" docker compose exec -T postgres psql -U "${POSTGRES_US
 check "redis PONG" sh -c 'docker compose exec -T redis redis-cli ping | grep -q PONG'
 check "canvas-api /healthz" docker compose exec -T canvas-api wget -qO- http://127.0.0.1:3000/healthz
 check "mock-transcoder /healthz" docker compose exec -T mock-transcoder wget -qO- http://127.0.0.1:3103/healthz
+check "gc-worker /healthz" docker compose exec -T gc-worker wget -qO- http://127.0.0.1:3104/healthz
 
 # Provisioned resources
 for b in "${BUCKET_INGEST:-media-ingest-poc}" "${BUCKET_DERIVED:-media-derived-poc}" "${BUCKET_PUBLISHED:-media-published-poc}"; do
