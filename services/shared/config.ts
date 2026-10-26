@@ -14,6 +14,7 @@ export const config = {
     process.env.QUEUE_LIGHT_PROCESSING_URL ?? 'http://localhost:4566/000000000000/light-processing',
   downloadTtlSeconds: int(process.env.DOWNLOAD_URL_TTL_SECONDS, 3600),
   queueAiRequestsUrl: process.env.QUEUE_AI_REQUESTS_URL ?? 'http://localhost:4566/000000000000/ai-requests',
+  sqsMaxReceiveCount: int(process.env.SQS_MAX_RECEIVE_COUNT, 3),
   mockAiModelVersion: process.env.MOCK_AI_MODEL_VERSION ?? 'mock-layout-v1',
   uploadTtlSeconds: int(process.env.UPLOAD_URL_TTL_SECONDS, 900),
   maxDocumentBytes: int(process.env.MAX_DOCUMENT_BYTES, 2 * 1024 * 1024),
