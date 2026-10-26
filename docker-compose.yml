@@ -15,6 +15,10 @@ x-app-env: &app-env
   QUEUE_LIGHT_PROCESSING_URL: http://localstack:4566/000000000000/${QUEUE_LIGHT_PROCESSING:-light-processing}
   QUEUE_LIGHT_PROCESSING_DLQ_URL: http://localstack:4566/000000000000/${QUEUE_LIGHT_PROCESSING_DLQ:-light-processing-dlq}
   QUEUE_AI_REQUESTS_URL: http://localstack:4566/000000000000/${QUEUE_AI_REQUESTS:-ai-requests}
+  QUEUE_TRANSCODE_REQUESTS_URL: http://localstack:4566/000000000000/${QUEUE_TRANSCODE_REQUESTS:-transcode-requests}
+  QUEUE_TRANSCODE_REQUESTS_DLQ_URL: http://localstack:4566/000000000000/${QUEUE_TRANSCODE_REQUESTS_DLQ:-transcode-requests-dlq}
+  QUEUE_PUBLISH_TASKS_URL: http://localstack:4566/000000000000/${QUEUE_PUBLISH_TASKS:-publish-tasks}
+  QUEUE_PUBLISH_TASKS_DLQ_URL: http://localstack:4566/000000000000/${QUEUE_PUBLISH_TASKS_DLQ:-publish-tasks-dlq}
   QUEUE_AI_REQUESTS_DLQ_URL: http://localstack:4566/000000000000/${QUEUE_AI_REQUESTS_DLQ:-ai-requests-dlq}
   SQS_MAX_RECEIVE_COUNT: ${SQS_MAX_RECEIVE_COUNT:-3}
   UPLOAD_STAGING_PREFIX: ${UPLOAD_STAGING_PREFIX:-staging/}
@@ -54,6 +58,10 @@ services:
       QUEUE_LIGHT_PROCESSING_DLQ: ${QUEUE_LIGHT_PROCESSING_DLQ:-light-processing-dlq}
       QUEUE_AI_REQUESTS: ${QUEUE_AI_REQUESTS:-ai-requests}
       QUEUE_AI_REQUESTS_DLQ: ${QUEUE_AI_REQUESTS_DLQ:-ai-requests-dlq}
+      QUEUE_TRANSCODE_REQUESTS: ${QUEUE_TRANSCODE_REQUESTS:-transcode-requests}
+      QUEUE_TRANSCODE_REQUESTS_DLQ: ${QUEUE_TRANSCODE_REQUESTS_DLQ:-transcode-requests-dlq}
+      QUEUE_PUBLISH_TASKS: ${QUEUE_PUBLISH_TASKS:-publish-tasks}
+      QUEUE_PUBLISH_TASKS_DLQ: ${QUEUE_PUBLISH_TASKS_DLQ:-publish-tasks-dlq}
       SQS_MAX_RECEIVE_COUNT: ${SQS_MAX_RECEIVE_COUNT:-3}
       UPLOAD_STAGING_PREFIX: ${UPLOAD_STAGING_PREFIX:-staging/}
     volumes:
@@ -154,11 +162,21 @@ services:
 
   mock-transcoder:
     <<: *app
+    build:
+      context: ./services
+      dockerfile: mock-transcoder/Dockerfile
+    volumes:
+      # Valid MP4 the mock places at final output keys. Nothing is transcoded.
+      - ./fixtures:/fixtures:ro
     ports:
       - "127.0.0.1:${HOST_PORT_TRANSCODER:-3103}:3103"
     environment:
       <<: *app-env
       SERVICE_NAME: mock-transcoder
+      # Local POC only: fail_mode in the transcode request/job payload injects failures.
+      WORKER_TEST_HOOKS: ${WORKER_TEST_HOOKS:-true}
+      MOCK_TRANSCODE_LATENCY_MS: ${MOCK_TRANSCODE_LATENCY_MS:-1500}
+      TRANSCODE_FIXTURE_PATH: /fixtures/sample.mp4
       PORT: "3103"
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3103/healthz"]

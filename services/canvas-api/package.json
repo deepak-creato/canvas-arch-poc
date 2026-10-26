@@ -9,6 +9,7 @@
   },
   "dependencies": {
     "@aws-sdk/client-s3": "3.1156.0",
+    "@aws-sdk/client-sfn": "3.1156.0",
     "@aws-sdk/client-sqs": "3.1156.0",
     "@aws-sdk/s3-request-presigner": "3.1156.0",
     "@nestjs/common": "12.2.0",

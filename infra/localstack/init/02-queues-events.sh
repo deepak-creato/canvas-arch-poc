@@ -17,6 +17,10 @@ Q_LIGHT="${QUEUE_LIGHT_PROCESSING:-light-processing}"
 Q_LIGHT_DLQ="${QUEUE_LIGHT_PROCESSING_DLQ:-light-processing-dlq}"
 Q_AI="${QUEUE_AI_REQUESTS:-ai-requests}"
 Q_AI_DLQ="${QUEUE_AI_REQUESTS_DLQ:-ai-requests-dlq}"
+Q_TRANSCODE="${QUEUE_TRANSCODE_REQUESTS:-transcode-requests}"
+Q_TRANSCODE_DLQ="${QUEUE_TRANSCODE_REQUESTS_DLQ:-transcode-requests-dlq}"
+Q_PUBLISH="${QUEUE_PUBLISH_TASKS:-publish-tasks}"
+Q_PUBLISH_DLQ="${QUEUE_PUBLISH_TASKS_DLQ:-publish-tasks-dlq}"
 RULE=ingest-staging-created
 RULE_ARN="arn:aws:events:$REGION:$ACCOUNT:rule/$RULE"
 
@@ -58,6 +62,11 @@ ensure_dlq "$Q_LIGHT_DLQ"
 ensure_dlq "$Q_AI_DLQ"
 ensure_main "$Q_LIGHT" "$Q_LIGHT_DLQ" 120
 ensure_main "$Q_AI" "$Q_AI_DLQ" 60
+# Publish workflow (M5): Step Functions task-token messages
+ensure_dlq "$Q_TRANSCODE_DLQ"
+ensure_dlq "$Q_PUBLISH_DLQ"
+ensure_main "$Q_TRANSCODE" "$Q_TRANSCODE_DLQ" 60
+ensure_main "$Q_PUBLISH" "$Q_PUBLISH_DLQ" 60
 
 # S3 -> default EventBridge bus
 aws s3api put-bucket-notification-configuration --bucket "$INGEST" \

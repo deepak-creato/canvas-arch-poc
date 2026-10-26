@@ -59,6 +59,7 @@ test:
 	cd services/canvas-api && npm test
 	cd services/light-worker && npm test -- --forceExit
 	cd services/ai-worker && npm test -- --forceExit
+	cd services/mock-transcoder && npm test -- --forceExit
 
 # M2 exit demo: 5 images + 1 video become usable, no final-tier work
 verify-m2:

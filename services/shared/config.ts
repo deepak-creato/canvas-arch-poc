@@ -15,6 +15,13 @@ export const config = {
   downloadTtlSeconds: int(process.env.DOWNLOAD_URL_TTL_SECONDS, 3600),
   queueAiRequestsUrl: process.env.QUEUE_AI_REQUESTS_URL ?? 'http://localhost:4566/000000000000/ai-requests',
   sqsMaxReceiveCount: int(process.env.SQS_MAX_RECEIVE_COUNT, 3),
+  bucketPublished: process.env.BUCKET_PUBLISHED ?? 'media-published-poc',
+  queueTranscodeUrl: process.env.QUEUE_TRANSCODE_REQUESTS_URL ?? 'http://localhost:4566/000000000000/transcode-requests',
+  queuePublishTasksUrl: process.env.QUEUE_PUBLISH_TASKS_URL ?? 'http://localhost:4566/000000000000/publish-tasks',
+  publishStateMachineArn:
+    process.env.PUBLISH_STATE_MACHINE_ARN ?? 'arn:aws:states:us-east-1:000000000000:stateMachine:canvas-publish',
+  transcodeLatencyMs: int(process.env.MOCK_TRANSCODE_LATENCY_MS, 1500),
+  transcodeFixturePath: process.env.TRANSCODE_FIXTURE_PATH ?? '/fixtures/sample.mp4',
   mockAiModelVersion: process.env.MOCK_AI_MODEL_VERSION ?? 'mock-layout-v1',
   uploadTtlSeconds: int(process.env.UPLOAD_URL_TTL_SECONDS, 900),
   maxDocumentBytes: int(process.env.MAX_DOCUMENT_BYTES, 2 * 1024 * 1024),
