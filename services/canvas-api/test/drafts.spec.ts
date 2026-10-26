@@ -3,6 +3,9 @@ import { execSync } from 'child_process';
 import { createHash, randomBytes, randomUUID } from 'crypto';
 import { readFileSync } from 'fs';
 import { resolve } from 'path';
+import { Pool } from 'pg';
+import { config } from '../../shared/config';
+import { recalcRetention } from '../../shared/refs';
 
 const API = process.env.API_URL ?? 'http://127.0.0.1:3000';
 const owner = () => `d-${randomBytes(4).toString('hex')}`;
@@ -221,5 +224,52 @@ describe('drafts: revision references (POC-017)', () => {
 
     expect(refs(d.draft_id)).toEqual([]);
     expect((await json(await call(o, 'GET', `/v1/drafts/${d.draft_id}`))).head_revision).toBe(1);
+  });
+});
+
+describe('drafts: ref_count and retention (POC-018)', () => {
+  const state = (id: string) => sql(`SELECT ref_count || '|' || retention_status || '|' || (orphaned_at IS NOT NULL) FROM media_asset WHERE id = '${id}'`);
+
+  it('counts each revision holder and stays REFERENCED while any holder remains', async () => {
+    const o = owner();
+    const a = await validatedAsset(o);
+    expect(state(a)).toBe('0|UNATTACHED|false');
+
+    const d1 = await json(await call(o, 'POST', '/v1/drafts', { document: { elements: [{ asset_id: a }] } }));
+    expect(state(a)).toBe('1|REFERENCED|false');
+    const d2 = await json(await call(o, 'POST', '/v1/drafts', { document: { elements: [{ asset_id: a }] } }));
+    expect(state(a)).toBe('2|REFERENCED|false');
+
+    // Same draft, new revision using the asset again: one more holder (history is retained).
+    await call(o, 'PUT', `/v1/drafts/${d1.draft_id}`, { base_revision: 1, document: { elements: [{ asset_id: a }, { id: 'n' }] } });
+    expect(state(a)).toBe('3|REFERENCED|false');
+
+    // Drop d1's holders: d2 still keeps the asset alive.
+    const pool = new Pool({ connectionString: config.databaseUrl });
+    try {
+      sql(`DELETE FROM media_reference WHERE revision_id IN (SELECT id FROM canvas_revision WHERE draft_id = '${d1.draft_id}')`);
+      await recalcRetention(pool, [a]);
+      expect(state(a)).toBe('1|REFERENCED|false');
+
+      // Last holder gone: ORPHANED, orphaned_at set once.
+      sql(`DELETE FROM media_reference WHERE revision_id IN (SELECT id FROM canvas_revision WHERE draft_id = '${d2.draft_id}')`);
+      await recalcRetention(pool, [a]);
+      expect(state(a)).toBe('0|ORPHANED|true');
+      const first = sql(`SELECT orphaned_at FROM media_asset WHERE id = '${a}'`);
+      await recalcRetention(pool, [a]);
+      expect(sql(`SELECT orphaned_at FROM media_asset WHERE id = '${a}'`)).toBe(first);
+
+      // A new reference rescues it.
+      const d3 = await json(await call(o, 'POST', '/v1/drafts', { document: { elements: [{ asset_id: a }] } }));
+      expect(d3.status).toBe('ACTIVE');
+      expect(state(a)).toBe('1|REFERENCED|false');
+
+      // DELETING is never touched.
+      sql(`UPDATE media_asset SET retention_status = 'DELETING' WHERE id = '${a}'`);
+      await recalcRetention(pool, [a]);
+      expect(state(a)).toBe('1|DELETING|false');
+    } finally {
+      await pool.end();
+    }
   });
 });

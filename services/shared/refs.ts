@@ -1,5 +1,7 @@
 import { PoolClient } from 'pg';
 
+type Queryable = Pick<PoolClient, 'query'>;
+
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export class AssetReferenceError extends Error {
@@ -63,4 +65,42 @@ export async function addRevisionReferences(client: PoolClient, ownerId: string,
     [assetIds, revisionId],
   );
   return assetIds;
+}
+
+/**
+ * Recomputes ref_count, retention_status and orphaned_at for the given assets from
+ * media_reference, the only source of truth. The caller holds the asset row locks
+ * (addRevisionReferences does) so counts cannot move underneath it.
+ *
+ *   publication reference         -> PUBLISHED
+ *   other references              -> REFERENCED, orphaned_at cleared
+ *   none, was referenced before   -> ORPHANED, orphaned_at set once (grace period starts there)
+ *   none, never referenced        -> unchanged (UNATTACHED)
+ *
+ * DELETING and DELETED assets are never touched.
+ */
+export async function recalcRetention(db: Queryable, assetIds: string[]): Promise<void> {
+  if (assetIds.length === 0) return;
+  await db.query(
+    `WITH c AS (
+       SELECT a.id,
+              (SELECT count(*)::int FROM media_reference r WHERE r.asset_id = a.id) AS n,
+              EXISTS (SELECT 1 FROM media_reference r WHERE r.asset_id = a.id AND r.publication_id IS NOT NULL) AS pub
+         FROM media_asset a
+        WHERE a.id = ANY($1::uuid[]) AND a.retention_status NOT IN ('DELETING', 'DELETED')
+     )
+     UPDATE media_asset a
+        SET ref_count = c.n,
+            retention_status = CASE
+              WHEN c.pub THEN 'PUBLISHED'
+              WHEN c.n > 0 THEN 'REFERENCED'
+              WHEN a.retention_status IN ('REFERENCED', 'PUBLISHED', 'ORPHANED') THEN 'ORPHANED'
+              ELSE a.retention_status END,
+            orphaned_at = CASE
+              WHEN c.n > 0 THEN NULL
+              WHEN a.retention_status IN ('REFERENCED', 'PUBLISHED', 'ORPHANED') THEN COALESCE(a.orphaned_at, now())
+              ELSE a.orphaned_at END
+       FROM c WHERE a.id = c.id`,
+    [assetIds],
+  );
 }

@@ -2,7 +2,7 @@ import { BadRequestException, ConflictException, Inject, Injectable, NotFoundExc
 import { Pool, PoolClient } from 'pg';
 import { config } from '../../../shared/config';
 import { log } from '../../../shared/log';
-import { addRevisionReferences, AssetReferenceError, extractAssetIds } from '../../../shared/refs';
+import { addRevisionReferences, AssetReferenceError, extractAssetIds, recalcRetention } from '../../../shared/refs';
 import { PG_POOL } from '../tokens';
 import { contentHash } from './canonical';
 
@@ -155,7 +155,9 @@ export class DraftsService {
   /** Writes the revision's media_reference rows; a bad reference aborts the whole transaction. */
   private async attachReferences(client: PoolClient, ownerId: string, rev: RevisionRow) {
     try {
-      return await addRevisionReferences(client, ownerId, rev.id, extractAssetIds(rev.document));
+      const ids = await addRevisionReferences(client, ownerId, rev.id, extractAssetIds(rev.document));
+      await recalcRetention(client, ids);
+      return ids;
     } catch (e) {
       if (e instanceof AssetReferenceError) {
         throw new UnprocessableEntityException({ code: e.code, message: e.message, asset_id: e.assetId });
