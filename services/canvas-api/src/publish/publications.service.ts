@@ -1,10 +1,11 @@
-import { GetObjectCommand, S3Client } from '@aws-sdk/client-s3';
+import { GetObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { BadRequestException, ConflictException, Inject, Injectable, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
 import { Pool, PoolClient } from 'pg';
 import { config } from '../../../shared/config';
 import { log } from '../../../shared/log';
 import { PG_POOL, PRESIGN_S3 } from '../tokens';
+import { CANVAS_TYPES, CanvasUploadDto } from './canvas-upload.dto';
 import { CreatePublicationDto } from './create-publication.dto';
 import { PublishOrchestrator } from './orchestrator';
 
@@ -27,6 +28,9 @@ export interface PublicationRow {
   created_at: Date;
   updated_at: Date;
 }
+
+/** One object per publication and type, so a re-upload overwrites instead of piling up. */
+export const canvasKey = (publicationId: string, contentType: string) => `publications/${publicationId}/canvas.${CANVAS_TYPES[contentType]}`;
 
 const KEY_RE = /^[\x21-\x7e]{1,128}$/;
 
@@ -114,6 +118,34 @@ export class PublicationsService {
 
   async get(ownerId: string, publicationId: string) {
     return this.view(await this.findOwned(ownerId, publicationId), true);
+  }
+
+  /**
+   * Fresh presigned PUT for the client-rendered canvas. Only while the workflow waits for it
+   * (AWAITING_CANVAS); the canvas is rendered by the client, never composed here.
+   */
+  async canvasUploadUrl(ownerId: string, publicationId: string, dto: CanvasUploadDto) {
+    const p = await this.findOwned(ownerId, publicationId);
+    if (p.status !== 'AWAITING_CANVAS') {
+      throw new ConflictException({ code: 'PUBLICATION_STATE', message: `publication is ${p.status}; a canvas upload is accepted only in AWAITING_CANVAS`, status: p.status });
+    }
+    const limit = dto.content_type === 'video/mp4' ? config.maxVideoBytes : config.maxImageBytes;
+    if (dto.size_bytes > limit) {
+      throw new BadRequestException({ code: 'CANVAS_TOO_LARGE', message: `canvas exceeds ${limit} bytes` });
+    }
+    const key = canvasKey(p.id, dto.content_type);
+    const url = await getSignedUrl(
+      this.s3,
+      new PutObjectCommand({ Bucket: config.bucketPublished, Key: key, ContentType: dto.content_type, ContentLength: dto.size_bytes }),
+      { expiresIn: config.uploadTtlSeconds },
+    );
+    log('info', 'canvas upload url issued', { publication_id: p.id, draft_id: p.draft_id });
+    return {
+      publication_id: p.id,
+      upload_url: url,
+      upload_headers: { 'Content-Type': dto.content_type, 'Content-Length': String(dto.size_bytes) },
+      upload_expires_at: new Date(Date.now() + config.uploadTtlSeconds * 1000).toISOString(),
+    };
   }
 
   async findOwned(ownerId: string, publicationId: string, db: Pick<PoolClient, 'query'> = this.pool): Promise<PublicationRow> {

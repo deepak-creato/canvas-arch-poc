@@ -38,7 +38,7 @@ async function stateTrail(arn: string): Promise<string[]> {
 }
 
 describe('publish workflow (POC-025)', () => {
-  it('validates, waits for finals, and stops at the first step that is not built yet', async () => {
+  it('validates, produces finals and stops at the canvas gate', async () => {
     const o = owner('wf');
     const img = await readyAsset(o);
     const vid = await readyVideo(o);
@@ -46,30 +46,28 @@ describe('publish workflow (POC-025)', () => {
     const { id, arn } = await startPublication(o, draft);
 
     // No Lambda in LocalStack: every step goes through the queue and the step runner.
-    expect(await until(() => pubStatus(id), (s) => s === 'FAILED')).toBe('FAILED');
+    expect(await until(() => pubStatus(id), (s) => s === 'AWAITING_CANVAS')).toBe('AWAITING_CANVAS');
     expect(await finalStatus(vid)).toBe('READY');
     expect(await finalStatus(img)).toBe(''); // images have no final tier
-    expect(trail(id)).toEqual(['WAITING_FOR_ASSETS', 'TRANSCODING', 'FAILED']);
-    expect(sql(`SELECT failure_reason FROM publication WHERE id = '${id}'`)).toMatch(/^STEP_NOT_IMPLEMENTED: .*AWAIT_CANVAS/);
+    expect(trail(id)).toEqual(['WAITING_FOR_ASSETS', 'TRANSCODING', 'AWAITING_CANVAS']);
 
-    expect(await until(() => executionStatus(arn), (s) => s !== 'RUNNING')).toBe('FAILED');
+    expect(await executionStatus(arn)).toBe('RUNNING');
     const states = await stateTrail(arn);
-    expect(states).toEqual(expect.arrayContaining(['ValidateSnapshot', 'AssetsReady', 'PlanFinals', 'Transcode', 'MarkFinalsReady', 'AwaitCanvas', 'FailPublication', 'Failed']));
+    expect(states).toEqual(['ValidateSnapshot', 'AssetsReady', 'PlanFinals', 'Transcode', 'MockTranscode', 'MarkFinalsReady', 'AwaitCanvas']);
   });
 
   it('runs no mock job when the final output is already READY', async () => {
     const o = owner('wf');
     const vid = await readyVideo(o);
     const first = await startPublication(o, await draftWith(o, [vid]));
-    await until(() => pubStatus(first.id), (s) => s === 'FAILED');
+    await until(() => pubStatus(first.id), (s) => s === 'AWAITING_CANVAS');
     expect(await finalStatus(vid)).toBe('READY');
     expect(transcodeJobs(vid)).toBe('1|1');
 
     const second = await startPublication(o, await draftWith(o, [vid]));
-    await until(() => pubStatus(second.id), (s) => s === 'FAILED');
+    await until(() => pubStatus(second.id), (s) => s === 'AWAITING_CANVAS');
     expect(transcodeJobs(vid)).toBe('1|1');
-    expect(trail(second.id)).toEqual(['WAITING_FOR_ASSETS', 'TRANSCODING', 'FAILED']);
-    expect(sql(`SELECT failure_reason FROM publication WHERE id = '${second.id}'`)).toMatch(/AWAIT_CANVAS/);
+    expect(trail(second.id)).toEqual(['WAITING_FOR_ASSETS', 'TRANSCODING', 'AWAITING_CANVAS']);
   });
 
   it('fails the publication with a reason when a final cannot be produced', async () => {

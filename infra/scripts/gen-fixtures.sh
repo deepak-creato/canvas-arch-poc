@@ -26,3 +26,8 @@ echo "this is not an image" > fake.png
 # 60 second low-res clip: exercises more than one sprite sheet
 ffmpeg -v error -y -f lavfi -i "testsrc2=size=160x90:rate=5:duration=60" \
   -c:v libx264 -pix_fmt yuv420p -crf 35 -an -movflags +faststart sample-long.mp4
+
+# Pre-rendered canvas, as the client would upload it when publishing
+ffmpeg -v error -y -f lavfi -i "testsrc2=size=1080x1080:rate=1" -frames:v 1 canvas-render.png
+ffmpeg -v error -y -f lavfi -i "testsrc2=size=360x360:rate=15:duration=2" \
+  -c:v libx264 -pix_fmt yuv420p -an -movflags +faststart canvas-render.mp4

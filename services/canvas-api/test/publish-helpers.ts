@@ -58,3 +58,24 @@ export async function until<T>(fn: () => T | Promise<T>, ok: (v: T) => boolean, 
 export const pubStatus = (id: string) => sql(`SELECT status FROM publication WHERE id = '${id}'`);
 export const trail = (id: string) => sql(`SELECT string_agg(to_status, ',' ORDER BY id) FROM publication_transition WHERE publication_id = '${id}'`).split(',');
 export const executionStatus = async (arn: string) => (await sfn.send(new DescribeExecutionCommand({ executionArn: arn }))).status;
+
+export const publish = (o: string, draftId: string, key: string | null, body: unknown = { revision: 1 }) =>
+  call(o, 'POST', `/v1/drafts/${draftId}/publications`, body, key ? { 'idempotency-key': key } : {});
+
+/** Publishes a fresh draft that uses one image and one video, and waits until the canvas gate opens. */
+export async function publishToGate(o: string, extra: Record<string, unknown> = {}) {
+  const img = await readyAsset(o);
+  const vid = await readyVideo(o);
+  const draft = await draftWith(o, [img, vid]);
+  const pub = await json(await publish(o, draft, `k-${randomBytes(6).toString('hex')}`, { revision: 1, ...extra }));
+  await until(() => pubStatus(pub.publication_id), (s) => s === 'AWAITING_CANVAS' || s === 'FAILED');
+  return { img, vid, draft, id: pub.publication_id as string, status: pubStatus(pub.publication_id) };
+}
+
+/** Requests an upload URL and uploads a fixture as the rendered canvas. */
+export async function uploadCanvas(o: string, id: string, name = 'canvas-render.png', ct = 'image/png') {
+  const bytes = readFileSync(`${FIX}/${name}`);
+  const res = await json(await call(o, 'POST', `/v1/publications/${id}/canvas-upload`, { content_type: ct, size_bytes: bytes.length }));
+  const put = await fetch(res.upload_url, { method: 'PUT', headers: res.upload_headers, body: new Uint8Array(bytes) });
+  return { put, bytes, res };
+}

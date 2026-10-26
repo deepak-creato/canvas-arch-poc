@@ -51,6 +51,8 @@ export class PublishSteps {
         return this.planFinals(msg);
       case 'MARK_FINALS_READY':
         return this.markFinalsReady(msg);
+      case 'AWAIT_CANVAS':
+        return this.awaitCanvas(msg);
       case 'FAIL_PUBLICATION':
         return this.failPublication(msg);
       default:
@@ -155,6 +157,26 @@ export class PublishSteps {
       await this.s3.send(new HeadObjectCommand({ Bucket: f.bucket, Key: f.key }));
     }
     return { finals: plan.reused.map((f) => ({ asset_id: f.asset_id, rendition_id: f.rendition_id, key: f.key })) };
+  }
+
+  /**
+   * The canvas gate. Stores the task token and opens AWAITING_CANVAS, then holds: the workflow resumes
+   * when the client confirms its canvas upload (POST canvas-uploaded) and the API answers the token.
+   * The token is stored before the status changes, so a client that sees AWAITING_CANVAS can always resume it.
+   */
+  private async awaitCanvas(msg: StepMessage) {
+    const p = await this.loadActive(msg);
+    // A redelivered message after the canvas was confirmed must not re-arm an answered token.
+    const armed = await this.pool.query(
+      `UPDATE publication SET task_token = $2
+        WHERE id = $1 AND status IN ('REQUESTED', 'WAITING_FOR_ASSETS', 'TRANSCODING', 'AWAITING_CANVAS')`,
+      [p.id, msg.token],
+    );
+    if (armed.rowCount) {
+      await transition(this.pool, p.id, 'AWAITING_CANVAS', msg.step);
+      log('info', 'waiting for canvas upload', { publication_id: p.id, draft_id: p.draft_id });
+    }
+    return HOLD;
   }
 
   /** Terminal failure: record it so the API, the client and the retry endpoint see it. */

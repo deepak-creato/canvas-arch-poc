@@ -1,5 +1,6 @@
 import { Body, Controller, Get, Headers, HttpCode, Param, ParseUUIDPipe, Post, Res } from '@nestjs/common';
 import { requireOwner } from '../drafts/owner';
+import { CanvasUploadDto } from './canvas-upload.dto';
 import { CreatePublicationDto } from './create-publication.dto';
 import { PublicationsService } from './publications.service';
 
@@ -20,6 +21,16 @@ export class PublicationsController {
     // A repeat of an accepted request returns the same operation: 200 instead of 202.
     if (pub.idempotent_replay) res.status(200);
     return pub;
+  }
+
+  @Post('publications/:publicationId/canvas-upload')
+  @HttpCode(200)
+  canvasUpload(
+    @Headers('x-owner-id') ownerId: string | undefined,
+    @Param('publicationId', new ParseUUIDPipe()) publicationId: string,
+    @Body() dto: CanvasUploadDto,
+  ) {
+    return this.publications.canvasUploadUrl(requireOwner(ownerId), publicationId, dto);
   }
 
   @Get('publications/:publicationId')
