@@ -1,0 +1,149 @@
+{
+  "Comment": "Publish workflow (POC-025). Every task is an SQS task-token message: publish-tasks is answered by canvas-api (step runner), transcode-requests by mock-transcoder. The mock transcoder places a fixture; it does not transcode.",
+  "StartAt": "ValidateSnapshot",
+  "States": {
+    "ValidateSnapshot": {
+      "Type": "Task",
+      "Comment": "WAITING_FOR_ASSETS. ready=false loops through WaitForAssets; the step fails the publication when assets never become ready.",
+      "Resource": "arn:aws:states:::sqs:sendMessage.waitForTaskToken",
+      "Parameters": {
+        "QueueUrl": "__PUBLISH_TASKS_URL__",
+        "MessageBody": {
+          "step": "VALIDATE_SNAPSHOT",
+          "publication_id.$": "$.publication_id",
+          "iteration.$": "$.validation.iteration",
+          "token.$": "$$.Task.Token"
+        }
+      },
+      "ResultPath": "$.validation",
+      "TimeoutSeconds": 120,
+      "Catch": [ { "ErrorEquals": ["States.ALL"], "ResultPath": "$.error", "Next": "FailPublication" } ],
+      "Next": "AssetsReady"
+    },
+    "AssetsReady": {
+      "Type": "Choice",
+      "Choices": [ { "Variable": "$.validation.ready", "BooleanEquals": true, "Next": "PlanFinals" } ],
+      "Default": "WaitForAssets"
+    },
+    "WaitForAssets": { "Type": "Wait", "SecondsPath": "$.wait_seconds", "Next": "ValidateSnapshot" },
+
+    "PlanFinals": {
+      "Type": "Task",
+      "Comment": "TRANSCODING. Returns only the video finals that are not READY yet.",
+      "Resource": "arn:aws:states:::sqs:sendMessage.waitForTaskToken",
+      "Parameters": {
+        "QueueUrl": "__PUBLISH_TASKS_URL__",
+        "MessageBody": { "step": "PLAN_FINALS", "publication_id.$": "$.publication_id", "token.$": "$$.Task.Token" }
+      },
+      "ResultPath": "$.plan",
+      "TimeoutSeconds": 120,
+      "Catch": [ { "ErrorEquals": ["States.ALL"], "ResultPath": "$.error", "Next": "FailPublication" } ],
+      "Next": "Transcode"
+    },
+    "Transcode": {
+      "Type": "Map",
+      "Comment": "Fan-out: one mock transcode per missing final.",
+      "ItemsPath": "$.plan.missing",
+      "MaxConcurrency": 3,
+      "ItemSelector": {
+        "publication_id.$": "$.publication_id",
+        "timeout_seconds.$": "$.transcode_timeout_seconds",
+        "item.$": "$$.Map.Item.Value"
+      },
+      "ItemProcessor": {
+        "ProcessorConfig": { "Mode": "INLINE" },
+        "StartAt": "MockTranscode",
+        "States": {
+          "MockTranscode": {
+            "Type": "Task",
+            "Resource": "arn:aws:states:::sqs:sendMessage.waitForTaskToken",
+            "Parameters": {
+              "QueueUrl": "__TRANSCODE_URL__",
+              "MessageBody": {
+                "publication_id.$": "$.publication_id",
+                "asset_id.$": "$.item.asset_id",
+                "rendition_id.$": "$.item.rendition_id",
+                "fail_mode.$": "$.item.fail_mode",
+                "token.$": "$$.Task.Token"
+              }
+            },
+            "TimeoutSecondsPath": "$.timeout_seconds",
+            "Retry": [ { "ErrorEquals": ["States.Timeout"], "IntervalSeconds": 2, "MaxAttempts": 2, "BackoffRate": 2 } ],
+            "End": true
+          }
+        }
+      },
+      "ResultPath": "$.transcoded",
+      "Catch": [ { "ErrorEquals": ["States.ALL"], "ResultPath": "$.error", "Next": "FailPublication" } ],
+      "Next": "MarkFinalsReady"
+    },
+    "MarkFinalsReady": {
+      "Type": "Task",
+      "Comment": "Every final must be READY with its object present before the canvas gate opens.",
+      "Resource": "arn:aws:states:::sqs:sendMessage.waitForTaskToken",
+      "Parameters": {
+        "QueueUrl": "__PUBLISH_TASKS_URL__",
+        "MessageBody": { "step": "MARK_FINALS_READY", "publication_id.$": "$.publication_id", "token.$": "$$.Task.Token" }
+      },
+      "ResultPath": "$.finals",
+      "TimeoutSeconds": 120,
+      "Catch": [ { "ErrorEquals": ["States.ALL"], "ResultPath": "$.error", "Next": "FailPublication" } ],
+      "Next": "AwaitCanvas"
+    },
+
+    "AwaitCanvas": {
+      "Type": "Task",
+      "Comment": "AWAITING_CANVAS. The step runner stores the token; POST /v1/publications/{id}/canvas-uploaded answers it.",
+      "Resource": "arn:aws:states:::sqs:sendMessage.waitForTaskToken",
+      "Parameters": {
+        "QueueUrl": "__PUBLISH_TASKS_URL__",
+        "MessageBody": { "step": "AWAIT_CANVAS", "publication_id.$": "$.publication_id", "token.$": "$$.Task.Token" }
+      },
+      "ResultPath": "$.canvas",
+      "TimeoutSecondsPath": "$.canvas_timeout_seconds",
+      "Catch": [ { "ErrorEquals": ["States.ALL"], "ResultPath": "$.error", "Next": "FailPublication" } ],
+      "Next": "WriteManifest"
+    },
+    "WriteManifest": {
+      "Type": "Task",
+      "Comment": "FINALIZING. Writes manifest.json to the published bucket.",
+      "Resource": "arn:aws:states:::sqs:sendMessage.waitForTaskToken",
+      "Parameters": {
+        "QueueUrl": "__PUBLISH_TASKS_URL__",
+        "MessageBody": { "step": "WRITE_MANIFEST", "publication_id.$": "$.publication_id", "token.$": "$$.Task.Token" }
+      },
+      "ResultPath": "$.manifest",
+      "TimeoutSeconds": 120,
+      "Catch": [ { "ErrorEquals": ["States.ALL"], "ResultPath": "$.error", "Next": "FailPublication" } ],
+      "Next": "MarkLive"
+    },
+    "MarkLive": {
+      "Type": "Task",
+      "Comment": "One transaction: LIVE, publication references, pinned revision.",
+      "Resource": "arn:aws:states:::sqs:sendMessage.waitForTaskToken",
+      "Parameters": {
+        "QueueUrl": "__PUBLISH_TASKS_URL__",
+        "MessageBody": { "step": "MARK_LIVE", "publication_id.$": "$.publication_id", "token.$": "$$.Task.Token" }
+      },
+      "ResultPath": "$.live",
+      "TimeoutSeconds": 120,
+      "Catch": [ { "ErrorEquals": ["States.ALL"], "ResultPath": "$.error", "Next": "FailPublication" } ],
+      "End": true
+    },
+
+    "FailPublication": {
+      "Type": "Task",
+      "Comment": "Records FAILED and the reason, then ends the execution as failed so Step Functions shows the truth.",
+      "Resource": "arn:aws:states:::sqs:sendMessage.waitForTaskToken",
+      "Parameters": {
+        "QueueUrl": "__PUBLISH_TASKS_URL__",
+        "MessageBody": { "step": "FAIL_PUBLICATION", "publication_id.$": "$.publication_id", "error.$": "$.error", "token.$": "$$.Task.Token" }
+      },
+      "ResultPath": "$.failed",
+      "TimeoutSeconds": 60,
+      "Catch": [ { "ErrorEquals": ["States.ALL"], "ResultPath": "$.failure_error", "Next": "Failed" } ],
+      "Next": "Failed"
+    },
+    "Failed": { "Type": "Fail", "Error": "PublicationFailed", "Cause": "See publication.failure_reason" }
+  }
+}

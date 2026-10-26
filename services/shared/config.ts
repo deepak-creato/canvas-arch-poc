@@ -20,6 +20,11 @@ export const config = {
   queuePublishTasksUrl: process.env.QUEUE_PUBLISH_TASKS_URL ?? 'http://localhost:4566/000000000000/publish-tasks',
   publishStateMachineArn:
     process.env.PUBLISH_STATE_MACHINE_ARN ?? 'arn:aws:states:us-east-1:000000000000:stateMachine:canvas-publish',
+  publishWaitSeconds: int(process.env.PUBLISH_WAIT_SECONDS, 2),
+  publishMaxAssetPolls: int(process.env.PUBLISH_MAX_ASSET_POLLS, 30),
+  publishCanvasTimeoutSeconds: int(process.env.PUBLISH_CANVAS_TIMEOUT_SECONDS, 900),
+  publishTranscodeTimeoutSeconds: int(process.env.PUBLISH_TRANSCODE_TIMEOUT_SECONDS, 120),
+  workerTestHooks: process.env.WORKER_TEST_HOOKS === 'true',
   transcodeLatencyMs: int(process.env.MOCK_TRANSCODE_LATENCY_MS, 1500),
   transcodeFixturePath: process.env.TRANSCODE_FIXTURE_PATH ?? '/fixtures/sample.mp4',
   mockAiModelVersion: process.env.MOCK_AI_MODEL_VERSION ?? 'mock-layout-v1',

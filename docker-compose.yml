@@ -66,6 +66,7 @@ services:
       UPLOAD_STAGING_PREFIX: ${UPLOAD_STAGING_PREFIX:-staging/}
     volumes:
       - ./infra/localstack/init:/etc/localstack/init/ready.d:ro
+      - ./infra/stepfunctions:/opt/stepfunctions:ro
     networks: [canvas-net]
     healthcheck:
       test:
@@ -125,6 +126,11 @@ services:
     environment:
       <<: *app-env
       SERVICE_NAME: canvas-api
+      WORKER_TEST_HOOKS: ${WORKER_TEST_HOOKS:-true}
+      PUBLISH_WAIT_SECONDS: ${PUBLISH_WAIT_SECONDS:-2}
+      PUBLISH_MAX_ASSET_POLLS: ${PUBLISH_MAX_ASSET_POLLS:-30}
+      PUBLISH_CANVAS_TIMEOUT_SECONDS: ${PUBLISH_CANVAS_TIMEOUT_SECONDS:-900}
+      PUBLISH_TRANSCODE_TIMEOUT_SECONDS: ${PUBLISH_TRANSCODE_TIMEOUT_SECONDS:-120}
       PORT: "3000"
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/healthz"]
