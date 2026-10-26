@@ -1,5 +1,5 @@
-import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
-import { Pool } from 'pg';
+import { BadRequestException, ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { Pool, PoolClient } from 'pg';
 import { config } from '../../../shared/config';
 import { log } from '../../../shared/log';
 import { PG_POOL } from '../tokens';
@@ -54,10 +54,7 @@ export class DraftsService {
   constructor(@Inject(PG_POOL) private readonly pool: Pool) {}
 
   async create(ownerId: string, document: Record<string, unknown>) {
-    const size = Buffer.byteLength(JSON.stringify(document));
-    if (size > config.maxDocumentBytes) {
-      throw new BadRequestException({ code: 'DOCUMENT_TOO_LARGE', message: `document exceeds ${config.maxDocumentBytes} bytes` });
-    }
+    assertDocumentSize(document);
     const client = await this.pool.connect();
     try {
       await client.query('BEGIN');
@@ -96,6 +93,83 @@ export class DraftsService {
     return { ...draftView(draft), revision: revisionView(rev) };
   }
 
+  /**
+   * Saves `document` as the next immutable revision. The draft row is locked for the whole
+   * transaction, so revision numbers are gapless and concurrent saves are serialized.
+   * A document equal to the head (same canonical hash) adds no revision.
+   */
+  async save(ownerId: string, draftId: string, baseRevision: number, document: Record<string, unknown>) {
+    assertDocumentSize(document);
+    const hash = contentHash(document);
+    return this.inTx(async (client) => {
+      const draft = await this.lockOwned(client, ownerId, draftId);
+      assertEditable(draft);
+      const head = (
+        await client.query<RevisionRow>(`SELECT * FROM canvas_revision WHERE draft_id = $1 AND revision_no = $2`, [draft.id, draft.head_revision_no])
+      ).rows[0];
+      if (head.content_hash === hash) return { ...draftView(draft), unchanged: true, revision: revisionView(head) };
+
+      const rev = await this.appendRevision(client, draft, document, hash, 'USER_SAVE', null);
+      log('info', 'revision saved', { draft_id: draft.id, revision_no: rev.revision_no, owner_id: ownerId });
+      return { ...draftView({ ...draft, head_revision_no: rev.revision_no }), unchanged: false, revision: revisionView(rev) };
+    });
+  }
+
+  /** Revision list without documents, newest first. */
+  async revisions(ownerId: string, draftId: string) {
+    const draft = await this.findOwned(ownerId, draftId);
+    const rows = (
+      await this.pool.query<RevisionRow>(
+        `SELECT revision_no, content_hash, source, restored_from_revision_no, pinned, created_at
+           FROM canvas_revision WHERE draft_id = $1 ORDER BY revision_no DESC`,
+        [draft.id],
+      )
+    ).rows;
+    return {
+      draft_id: draft.id,
+      head_revision: draft.head_revision_no,
+      revisions: rows.map((r) => {
+        const { document: _omit, ...v } = revisionView({ ...r, document: null });
+        return v;
+      }),
+    };
+  }
+
+  /** Inserts revision head+1 and advances the draft. Caller holds the draft row lock. */
+  private async appendRevision(client: PoolClient, draft: DraftRow, document: unknown, hash: string, source: string, restoredFrom: number | null) {
+    const no = draft.head_revision_no + 1;
+    const rev = (
+      await client.query<RevisionRow>(
+        `INSERT INTO canvas_revision (draft_id, revision_no, document, content_hash, source, restored_from_revision_no)
+         VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
+        [draft.id, no, JSON.stringify(document), hash, source, restoredFrom],
+      )
+    ).rows[0];
+    await client.query(`UPDATE canvas_draft SET head_revision_no = $2, last_activity_at = now() WHERE id = $1`, [draft.id, no]);
+    return rev;
+  }
+
+  private async inTx<T>(fn: (c: PoolClient) => Promise<T>): Promise<T> {
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      const out = await fn(client);
+      await client.query('COMMIT');
+      return out;
+    } catch (e) {
+      await client.query('ROLLBACK').catch(() => undefined);
+      throw e;
+    } finally {
+      client.release();
+    }
+  }
+
+  private async lockOwned(client: PoolClient, ownerId: string, draftId: string): Promise<DraftRow> {
+    const d = (await client.query<DraftRow>(`SELECT * FROM canvas_draft WHERE id = $1 AND owner_id = $2 FOR UPDATE`, [draftId, ownerId])).rows[0];
+    if (!d) throw new NotFoundException({ code: 'DRAFT_NOT_FOUND', message: 'draft not found' });
+    return d;
+  }
+
   /** Newest activity first. DISCARDED drafts are hidden unless asked for with ?status=. */
   async list(ownerId: string, status?: string) {
     if (status && !STATUSES.includes(status)) {
@@ -120,4 +194,19 @@ export class DraftsService {
     if (!d) throw new NotFoundException({ code: 'DRAFT_NOT_FOUND', message: 'draft not found' });
     return d;
   }
+}
+
+function assertDocumentSize(document: unknown) {
+  if (Buffer.byteLength(JSON.stringify(document)) > config.maxDocumentBytes) {
+    throw new BadRequestException({ code: 'DOCUMENT_TOO_LARGE', message: `document exceeds ${config.maxDocumentBytes} bytes` });
+  }
+}
+
+/** Only ACTIVE drafts take edits. PUBLISHING and PUBLISHED are frozen (one publication per draft). */
+function assertEditable(d: DraftRow) {
+  if (d.status === 'ACTIVE') return;
+  if (d.status === 'DISCARDED' || d.status === 'PURGED') {
+    throw new ConflictException({ code: 'DRAFT_DISCARDED', message: `draft is ${d.status}` });
+  }
+  throw new ConflictException({ code: 'DRAFT_FROZEN', message: `draft is ${d.status} and cannot be edited` });
 }

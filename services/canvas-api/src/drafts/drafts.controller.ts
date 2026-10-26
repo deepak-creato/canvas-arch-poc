@@ -1,5 +1,6 @@
-import { Body, Controller, Get, Headers, HttpCode, Param, ParseUUIDPipe, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, Headers, HttpCode, Param, ParseUUIDPipe, Post, Put, Query } from '@nestjs/common';
 import { CreateDraftDto } from './create-draft.dto';
+import { SaveDraftDto } from './save-draft.dto';
 import { DraftsService } from './drafts.service';
 import { requireOwner } from './owner';
 
@@ -21,5 +22,19 @@ export class DraftsController {
   @Get(':draftId')
   get(@Headers('x-owner-id') ownerId: string | undefined, @Param('draftId', new ParseUUIDPipe()) draftId: string) {
     return this.drafts.get(requireOwner(ownerId), draftId);
+  }
+
+  @Put(':draftId')
+  save(
+    @Headers('x-owner-id') ownerId: string | undefined,
+    @Param('draftId', new ParseUUIDPipe()) draftId: string,
+    @Body() dto: SaveDraftDto,
+  ) {
+    return this.drafts.save(requireOwner(ownerId), draftId, dto.base_revision, dto.document);
+  }
+
+  @Get(':draftId/revisions')
+  revisions(@Headers('x-owner-id') ownerId: string | undefined, @Param('draftId', new ParseUUIDPipe()) draftId: string) {
+    return this.drafts.revisions(requireOwner(ownerId), draftId);
   }
 }
