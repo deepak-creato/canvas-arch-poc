@@ -1,4 +1,4 @@
-.PHONY: bootstrap teardown preflight health smoke-sfn up down reset logs ps verify-s3 verify-events verify verify-schema migrate psql test verify-m2 gc-run gc-jobs gc-dlq gc-redrive gc-reconcile
+.PHONY: bootstrap teardown preflight health smoke-sfn up down reset logs ps verify-s3 verify-events verify verify-schema migrate psql test verify-m2 gc-run gc-jobs gc-dlq gc-redrive gc-reconcile demo demo-run
 
 # One command from a fresh clone to a verified stack (M1 exit demo)
 bootstrap:
@@ -83,3 +83,13 @@ gc-redrive:
 # Missed events and storage drift (POC-036); strays are deleted only with GC_DELETE_STRAYS=true
 gc-reconcile:
 	@$(MAKE) --no-print-directory gc-run STEP=reconcileUploads,reconcileDrift,reconcileStrays
+
+# POC-039: the whole story from a clean environment. WIPES the stack's volumes first (teardown).
+demo:
+	@$(MAKE) --no-print-directory teardown
+	@$(MAKE) --no-print-directory bootstrap
+	@./infra/scripts/demo.sh
+
+# Same demonstration against the running stack, no wipe
+demo-run:
+	@./infra/scripts/demo.sh
