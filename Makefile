@@ -1,4 +1,4 @@
-.PHONY: bootstrap teardown preflight health smoke-sfn up down reset logs ps verify-s3 verify-events verify verify-schema migrate psql
+.PHONY: bootstrap teardown preflight health smoke-sfn up down reset logs ps verify-s3 verify-events verify verify-schema migrate psql test
 
 # One command from a fresh clone to a verified stack (M1 exit demo)
 bootstrap:
@@ -53,3 +53,7 @@ psql:
 
 verify-schema:
 	@./infra/scripts/verify-schema.sh
+
+# Integration tests for canvas-api; need the stack running (make up)
+test:
+	cd services/canvas-api && npm test

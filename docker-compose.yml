@@ -18,6 +18,9 @@ x-app-env: &app-env
   QUEUE_AI_REQUESTS_DLQ_URL: http://localstack:4566/000000000000/${QUEUE_AI_REQUESTS_DLQ:-ai-requests-dlq}
   SQS_MAX_RECEIVE_COUNT: ${SQS_MAX_RECEIVE_COUNT:-3}
   UPLOAD_STAGING_PREFIX: ${UPLOAD_STAGING_PREFIX:-staging/}
+  MAX_IMAGE_BYTES: ${MAX_IMAGE_BYTES:-20971520}
+  MAX_VIDEO_BYTES: ${MAX_VIDEO_BYTES:-209715200}
+  UPLOAD_URL_TTL_SECONDS: ${UPLOAD_URL_TTL_SECONDS:-900}
 
 x-app: &app
   build: ./services/_stub
@@ -106,6 +109,9 @@ services:
 
   canvas-api:
     <<: *app
+    build:
+      context: ./services
+      dockerfile: canvas-api/Dockerfile
     ports:
       - "127.0.0.1:${HOST_PORT_API:-3000}:3000"
     environment:
