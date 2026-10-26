@@ -38,12 +38,10 @@ export function extractAssetIds(doc: unknown): string[] {
 }
 
 /**
- * Records which assets a revision uses, in the caller's transaction. Locks the asset rows
- * and rejects anything missing, foreign, not VALIDATED, or already DELETING/DELETED.
- * Returns the referenced asset ids.
+ * Locks the asset rows (in id order) and rejects anything missing, foreign, not VALIDATED,
+ * or already DELETING/DELETED. Shared by revision and publication references.
  */
-export async function addRevisionReferences(client: PoolClient, ownerId: string, revisionId: string, assetIds: string[]): Promise<string[]> {
-  if (assetIds.length === 0) return [];
+async function lockReferenceable(client: PoolClient, ownerId: string, assetIds: string[]): Promise<void> {
   const rows = (
     await client.query<{ id: string; owner_id: string; upload_status: string; retention_status: string }>(
       `SELECT id, owner_id, upload_status, retention_status FROM media_asset WHERE id = ANY($1::uuid[]) ORDER BY id FOR UPDATE`,
@@ -60,9 +58,30 @@ export async function addRevisionReferences(client: PoolClient, ownerId: string,
     }
     if (a.upload_status !== 'VALIDATED') throw new AssetReferenceError('ASSET_NOT_READY', `asset ${id} is ${a.upload_status}`, id);
   }
+}
+
+/**
+ * Records which assets a revision uses, in the caller's transaction. Locks the asset rows
+ * and rejects anything missing, foreign, not VALIDATED, or already DELETING/DELETED.
+ * Returns the referenced asset ids.
+ */
+export async function addRevisionReferences(client: PoolClient, ownerId: string, revisionId: string, assetIds: string[]): Promise<string[]> {
+  if (assetIds.length === 0) return [];
+  await lockReferenceable(client, ownerId, assetIds);
   await client.query(
     `INSERT INTO media_reference (asset_id, revision_id) SELECT unnest($1::uuid[]), $2 ON CONFLICT DO NOTHING`,
     [assetIds, revisionId],
+  );
+  return assetIds;
+}
+
+/** Same for a publication: the published assets stay referenced for as long as the publication exists. */
+export async function addPublicationReferences(client: PoolClient, ownerId: string, publicationId: string, assetIds: string[]): Promise<string[]> {
+  if (assetIds.length === 0) return [];
+  await lockReferenceable(client, ownerId, assetIds);
+  await client.query(
+    `INSERT INTO media_reference (asset_id, publication_id) SELECT unnest($1::uuid[]), $2 ON CONFLICT DO NOTHING`,
+    [assetIds, publicationId],
   );
   return assetIds;
 }

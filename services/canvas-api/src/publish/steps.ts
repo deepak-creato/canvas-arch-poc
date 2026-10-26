@@ -9,6 +9,7 @@ import { rollUp } from '../assets/assets.service';
 import { contentHash } from '../drafts/canonical';
 import { PG_POOL, S3 } from '../tokens';
 import { StepError } from './errors';
+import { markPublicationLive } from './mark-live';
 import { transition } from './publication-state';
 
 /** Message that Step Functions puts on the publish-tasks queue (see infra/stepfunctions/publish.asl.json). */
@@ -55,6 +56,8 @@ export class PublishSteps {
         return this.awaitCanvas(msg);
       case 'WRITE_MANIFEST':
         return this.writeManifest(msg);
+      case 'MARK_LIVE':
+        return markPublicationLive(this.pool, msg.publication_id, msg.step);
       case 'FAIL_PUBLICATION':
         return this.failPublication(msg);
       default:
