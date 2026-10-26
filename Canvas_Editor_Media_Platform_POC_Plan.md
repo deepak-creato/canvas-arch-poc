@@ -637,6 +637,7 @@ Upload / Dedup
 | DLQ redrive                    | Receive/send/delete, not `StartMessageMoveTask` (not relied on in LocalStack). `final-transcode` jobs excluded: their messages hold Step Functions tokens, use publication retry |
 | Stray objects                  | Reported always; deleted only with `GC_DELETE_STRAYS=true`, after the stray grace and a fresh DB check. Unrecognised key shapes are never touched |
 | Event/GC race window           | A derive job row is created when the light-worker first handles the event, so an asset with no job row yet is not protected by the active-job check; the worker ignores events for `DELETING`/`DELETED` and the orphan grace makes the window negligible. Revalidate on AWS |
+| Web test UI (POC-041)          | `web/` (Vite + React) runs on the host at `127.0.0.1:5173`, not in Compose. The APIs have no CORS, so the Vite dev server proxies `/api`, `/gc` and `/transcoder`; no backend change. Presigned S3 URLs are called directly (ingest and published buckets have CORS; derived renditions are shown through `img`/`video` tags only) |
 
 
 **Confidence level:** High for architecture coverage and milestone dependencies; medium for elapsed timeline until LocalStack support and team capacity are verified.

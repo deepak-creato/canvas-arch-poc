@@ -1,4 +1,4 @@
-.PHONY: bootstrap teardown preflight health smoke-sfn up down reset logs ps verify-s3 verify-events verify verify-schema migrate psql test verify-m2 gc-run gc-jobs gc-dlq gc-redrive gc-reconcile demo demo-run
+.PHONY: bootstrap teardown preflight health smoke-sfn up down reset logs ps verify-s3 verify-events verify verify-schema migrate psql test verify-m2 gc-run gc-jobs gc-dlq gc-redrive gc-reconcile demo demo-run ui-install ui ui-test ui-build
 
 # One command from a fresh clone to a verified stack (M1 exit demo)
 bootstrap:
@@ -93,3 +93,16 @@ demo:
 # Same demonstration against the running stack, no wipe
 demo-run:
 	@./infra/scripts/demo.sh
+
+# POC-041: browser test UI (Vite + React in web/), runs on the host at http://127.0.0.1:5173; needs the stack (make up)
+ui-install:
+	cd web && npm ci
+
+ui:
+	cd web && npm run dev
+
+ui-test:
+	cd web && npm test
+
+ui-build:
+	cd web && npm run build

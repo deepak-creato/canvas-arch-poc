@@ -38,6 +38,7 @@ The demonstration (`infra/scripts/demo.sh`, API calls only) prints one PASS line
 | `make verify-m2` | M2 exit demo (5 images + 1 video) |
 | `make demo` / `make demo-run` | full demonstration with / without wiping first |
 | `make gc-run [STEP=a,b]`, `make gc-jobs`, `make gc-dlq`, `make gc-redrive`, `make gc-reconcile` | garbage collection and recovery operations (see the runbook) |
+| `make ui-install`, `make ui`, `make ui-test` | browser test UI in `web/` (see [Web UI](#web-ui)); needs the stack running |
 | `make psql`, `make logs`, `make ps`, `make migrate` | helpers |
 
 ### Troubleshooting
@@ -62,9 +63,21 @@ All ports bind to `127.0.0.1` and can be changed in `.env`.
 | PostgreSQL | `localhost:5433` | user, password, db: `canvas` |
 | Redis | `localhost:6380` | ephemeral only |
 
+## Web UI
+
+A minimal Vite + React client for driving the whole flow by hand: upload (SHA-256, dedup, rejects), asset processing, draft edit with revisions and conflicts, mock AI layouts, publish with canvas upload and retry, GC and DLQ operations. It logs every request with its status, error code and correlation ID.
+
+```bash
+make up          # stack must be running
+make ui-install  # once
+make ui          # http://127.0.0.1:5173
+```
+
+The dev server proxies `/api` (canvas-api), `/gc` (gc-worker) and `/transcoder` (mock-transcoder) because those services have no CORS. Presigned S3 URLs go straight to `localhost:4566`. Use the owner box (A/B buttons) to test owner isolation and per-owner dedup. The set of known assets is kept in the browser's local storage, since the API has no list-assets endpoint.
+
 ## Repository layout
 
-`services/` (code, one folder per service plus `shared/`), `db/migrations/` (forward-only SQL), `infra/` (LocalStack init scripts, state machine, verification and demo scripts), `fixtures/` (redistributable test media; regenerate with `infra/scripts/gen-fixtures.sh`), `docs/` (plans per milestone, API, architecture, runbook).
+`web/` (browser test UI), `services/` (code, one folder per service plus `shared/`), `db/migrations/` (forward-only SQL), `infra/` (LocalStack init scripts, state machine, verification and demo scripts), `fixtures/` (redistributable test media; regenerate with `infra/scripts/gen-fixtures.sh`), `docs/` (plans per milestone, API, architecture, runbook).
 
 ## Infrastructure details
 

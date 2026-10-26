@@ -37,6 +37,10 @@ docker compose exec -e AWS_ACCESS_KEY_ID=test -e AWS_SECRET_ACCESS_KEY=test -e A
 
 Always pass `--endpoint-url` to `aws` inside the LocalStack container.
 
+## Web UI
+
+`make ui` serves the test UI at `http://127.0.0.1:5173` (needs `make up`). Proxy ports follow `HOST_PORT_API`, `HOST_PORT_GC` and `HOST_PORT_TRANSCODER`; export them before `make ui` if you changed them in `.env`. If every call shows `NETWORK` in the request log, the stack is down or the port differs. If a presigned upload fails in the browser, check that LocalStack is on `localhost:4566` (`S3_PUBLIC_ENDPOINT`).
+
 ## Recovering a worker crash
 
 Kill the worker (`docker compose kill light-worker`) mid-job and start it again: the job keeps `RUNNING` until its lease (60 to 120 s) expires, then SQS redelivers the message after the visibility timeout (120 s) and the job is claimed again. No manual step needed. To force it sooner use `make gc-run STEP=reapStuckJobs,requeueJobs` after the lease is over.

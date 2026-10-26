@@ -43,6 +43,7 @@ NestJS API, PostgreSQL, Redis, Sharp and FFmpeg workers, Docker Compose. Pin eve
 - `make up` — start the stack and wait for health
 - `make down` — stop the stack
 - `make logs`, `make ps`
+- `make ui-install` / `make ui` / `make ui-test` — browser test UI in `web/` at `127.0.0.1:5173`
 
 ## Layout
 
@@ -52,6 +53,7 @@ NestJS API, PostgreSQL, Redis, Sharp and FFmpeg workers, Docker Compose. Pin eve
 - `docs/plans/` — per-ticket implementation plans
 - `docs/api/`, `docs/architecture.md`, `docs/runbook.md`, `docs/validation-checklist.md` — handoff docs
 - `docs/ai/` — AI-assistant context documents
+- `web/` — Vite + React test UI (POC-041); dev-server proxy instead of API CORS, host-run, not in Compose
 
 ## Status
 

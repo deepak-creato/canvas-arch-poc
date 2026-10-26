@@ -1,0 +1,38 @@
+:root { font-family: system-ui, sans-serif; font-size: 14px; color: #1c1c1c; background: #fafafa; }
+body { margin: 0; }
+.app { max-width: 1200px; margin: 0 auto; padding: 0 16px 24px; }
+header { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; padding: 10px 0; border-bottom: 1px solid #ddd; }
+nav { display: flex; gap: 4px; }
+nav .active { background: #1c1c1c; color: #fff; }
+button { cursor: pointer; padding: 3px 9px; border: 1px solid #aaa; background: #fff; border-radius: 4px; }
+.row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 8px 0; }
+.cols { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+@media (max-width: 800px) { .cols { grid-template-columns: 1fr; } }
+textarea { width: 100%; font-family: monospace; box-sizing: border-box; }
+table { border-collapse: collapse; width: 100%; }
+td { padding: 2px 8px; border-bottom: 1px solid #eee; font-size: 12px; }
+tr.sel { background: #e8f0ff; }
+tr { cursor: default; }
+.error { background: #fde8e8; color: #8a1111; padding: 6px 10px; border-radius: 4px; margin: 6px 0; }
+.json { background: #f0f0f0; padding: 8px; overflow: auto; max-height: 280px; font-size: 12px; }
+.grid { display: flex; flex-wrap: wrap; gap: 12px; }
+.grid img, .grid video { max-width: 240px; max-height: 180px; display: block; }
+.preview { max-width: 100%; border: 1px solid #ccc; background: #fff; }
+.render { max-width: 400px; display: block; }
+.badge { padding: 1px 7px; border-radius: 9px; background: #ddd; font-size: 11px; }
+.b-READY, .b-LIVE, .b-VALIDATED, .b-ACTIVE { background: #c8f0c8; }
+.b-FAILED, .b-REJECTED, .b-EXPIRED { background: #f5c0c0; }
+.b-PROCESSING, .b-PENDING, .b-QUEUED, .b-AWAITING_CANVAS, .b-TRANSCODING { background: #fbe8b0; }
+.dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; }
+.dot.up { background: #2a2; } .dot.down { background: #c22; }
+.dim { color: #777; font-size: 12px; }
+.log { position: sticky; bottom: 0; background: #fff; border-top: 2px solid #1c1c1c; max-height: 220px; overflow: auto; margin-top: 16px; }
+.log tr.bad td { color: #a11; }
+@media (prefers-color-scheme: dark) {
+  :root { color: #e6e6e6; background: #181818; }
+  button { background: #2a2a2a; color: #e6e6e6; border-color: #555; }
+  nav .active { background: #e6e6e6; color: #111; }
+  .json { background: #242424; } .log { background: #181818; }
+  tr.sel { background: #243050; } td { border-color: #333; }
+  .badge { background: #444; } .error { background: #4a1a1a; color: #fbb; }
+}
