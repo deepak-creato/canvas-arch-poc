@@ -30,6 +30,12 @@ interface RevisionRow {
   created_at: Date;
 }
 
+/** `onSaved` runs in the save transaction, so related state commits or rolls back with the revision. */
+export interface SaveOptions {
+  source?: 'USER_SAVE' | 'AI_GENERATION';
+  onSaved?: (client: PoolClient, revisionNo: number, unchanged: boolean) => Promise<void>;
+}
+
 export const draftView = (d: DraftRow) => ({
   draft_id: d.id,
   status: d.status,
@@ -93,7 +99,7 @@ export class DraftsService {
    * transaction, so revision numbers are gapless and concurrent saves are serialized.
    * A document equal to the head (same canonical hash) adds no revision.
    */
-  async save(ownerId: string, draftId: string, baseRevision: number, document: Record<string, unknown>) {
+  async save(ownerId: string, draftId: string, baseRevision: number, document: Record<string, unknown>, opts: SaveOptions = {}) {
     assertDocumentSize(document);
     const hash = contentHash(document);
     return this.inTx(async (client) => {
@@ -109,10 +115,14 @@ export class DraftsService {
       const head = (
         await client.query<RevisionRow>(`SELECT * FROM canvas_revision WHERE draft_id = $1 AND revision_no = $2`, [draft.id, draft.head_revision_no])
       ).rows[0];
-      if (head.content_hash === hash) return { ...draftView(draft), unchanged: true, revision: revisionView(head) };
+      if (head.content_hash === hash) {
+        await opts.onSaved?.(client, head.revision_no, true);
+        return { ...draftView(draft), unchanged: true, revision: revisionView(head) };
+      }
 
-      const rev = await this.appendRevision(client, draft, document, hash, 'USER_SAVE', null);
+      const rev = await this.appendRevision(client, draft, document, hash, opts.source ?? 'USER_SAVE', null);
       await this.attachReferences(client, ownerId, rev);
+      await opts.onSaved?.(client, rev.revision_no, false);
       log('info', 'revision saved', { draft_id: draft.id, revision_no: rev.revision_no, owner_id: ownerId });
       return { ...draftView({ ...draft, head_revision_no: rev.revision_no }), unchanged: false, revision: revisionView(rev) };
     });

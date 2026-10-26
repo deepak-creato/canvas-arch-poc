@@ -63,6 +63,25 @@ export class AiService {
     const cacheKey = sha(`${inputHash}|${modelVersion}|${seed}`);
     const request = { assets, canvas, ...(dto.test_fail ? { test_fail: dto.test_fail } : {}) };
 
+    // Same input, model and seed from the same owner: reuse the finished layout, do no new work.
+    const hit = (
+      await this.pool.query<{ id: string; result: unknown }>(
+        `SELECT id, result FROM ai_generation WHERE owner_id = $1 AND cache_key = $2 AND status = 'READY' ORDER BY created_at LIMIT 1`,
+        [ownerId, cacheKey],
+      )
+    ).rows[0];
+    if (hit) {
+      const cached = (
+        await this.pool.query<GenerationRow>(
+          `INSERT INTO ai_generation (draft_id, owner_id, status, input_hash, model_version, seed, cache_key, request, result, cached_from_id)
+           VALUES ($1, $2, 'READY', $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
+          [draft.id, ownerId, inputHash, modelVersion, seed, cacheKey, JSON.stringify({ assets, canvas }), JSON.stringify(hit.result), hit.id],
+        )
+      ).rows[0];
+      log('info', 'ai layout served from cache', { generation_id: cached.id, cached_from: hit.id, draft_id: draft.id, correlation_id: correlationId });
+      return generationView(cached);
+    }
+
     const row = (
       await this.pool.query<GenerationRow>(
         `INSERT INTO ai_generation (draft_id, owner_id, input_hash, model_version, seed, cache_key, request)
@@ -81,6 +100,28 @@ export class AiService {
     }
     log('info', 'ai layout requested', fields);
     return generationView(row);
+  }
+
+  /**
+   * Saves a READY layout as a new head revision (source AI_GENERATION) through the normal save path,
+   * so conflicts, references and retention behave as for a user save. Repeating returns the same revision.
+   */
+  async accept(ownerId: string, draftId: string, generationId: string, baseRevision: number) {
+    const g = (
+      await this.pool.query<GenerationRow>(`SELECT * FROM ai_generation WHERE id = $1 AND owner_id = $2 AND draft_id = $3`, [generationId, ownerId, draftId])
+    ).rows[0];
+    if (!g) throw new NotFoundException({ code: 'GENERATION_NOT_FOUND', message: 'generation not found' });
+    if (g.accepted_revision_no !== null) return { already_accepted: true, generation: generationView(g) };
+    if (g.status !== 'READY') throw new ConflictException({ code: 'GENERATION_NOT_READY', message: `generation is ${g.status}` });
+
+    const saved = await this.drafts.save(ownerId, draftId, baseRevision, g.result as Record<string, unknown>, {
+      source: 'AI_GENERATION',
+      onSaved: async (client, revisionNo) => {
+        await client.query(`UPDATE ai_generation SET accepted_revision_no = $2 WHERE id = $1 AND accepted_revision_no IS NULL`, [g.id, revisionNo]);
+      },
+    });
+    const fresh = (await this.pool.query<GenerationRow>(`SELECT * FROM ai_generation WHERE id = $1`, [g.id])).rows[0];
+    return { already_accepted: false, ...saved, generation: generationView(fresh) };
   }
 
   async get(ownerId: string, generationId: string) {

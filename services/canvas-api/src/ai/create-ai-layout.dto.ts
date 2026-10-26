@@ -42,3 +42,9 @@ export class CreateAiLayoutDto {
   @IsIn(['permanent', 'transient_once'])
   test_fail?: 'permanent' | 'transient_once';
 }
+
+export class AcceptAiLayoutDto {
+  @IsInt()
+  @Min(1)
+  base_revision!: number;
+}
