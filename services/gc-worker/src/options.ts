@@ -9,6 +9,10 @@ export interface GcOptions {
   uploadExpiryGraceSeconds: number;
   unattachedGraceSeconds: number;
   orphanGraceSeconds: number;
+  /** Newest N revisions of a draft are never pruned. */
+  revisionKeepLast: number;
+  /** Revisions younger than this are never pruned. */
+  revisionMinAgeSeconds: number;
   /** Only rows of this owner are considered. Unset = all owners. */
   ownerId?: string;
 }
@@ -18,5 +22,7 @@ export const defaultOptions = (over: Partial<GcOptions> = {}): GcOptions => ({
   uploadExpiryGraceSeconds: config.gcUploadExpiryGraceSeconds,
   unattachedGraceSeconds: config.gcUnattachedGraceSeconds,
   orphanGraceSeconds: config.gcOrphanGraceSeconds,
+  revisionKeepLast: config.gcRevisionKeepLast,
+  revisionMinAgeSeconds: config.gcRevisionMinAgeSeconds,
   ...over,
 });

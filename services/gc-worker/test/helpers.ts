@@ -13,6 +13,8 @@ export const opts = (ownerId: string, over: Partial<GcOptions> = {}): GcOptions 
   uploadExpiryGraceSeconds: 0,
   unattachedGraceSeconds: 0,
   orphanGraceSeconds: 0,
+  revisionKeepLast: 1,
+  revisionMinAgeSeconds: 0,
   ownerId,
   ...over,
 });
@@ -46,3 +48,28 @@ export async function seedAsset(a: SeedAsset): Promise<{ id: string; key: string
 
 export const asset = async (id: string) =>
   (await pool.query(`SELECT upload_status, retention_status, ref_count, orphaned_at FROM media_asset WHERE id = $1`, [id])).rows[0];
+
+// canvas-api, for tests that go through the real save path
+const API = process.env.API_URL ?? 'http://127.0.0.1:3000';
+export const api = async (owner: string, method: string, path: string, body?: unknown) => {
+  const r = await fetch(`${API}${path}`, {
+    method,
+    headers: { 'x-owner-id': owner, ...(body !== undefined ? { 'content-type': 'application/json' } : {}) },
+    body: body !== undefined ? JSON.stringify(body) : undefined,
+  });
+  return { status: r.status, body: (await r.json().catch(() => ({}))) as any };
+};
+export const docWith = (...assetIds: string[]) => ({ elements: assetIds.map((asset_id) => ({ type: 'media', asset_id })) });
+
+/** Creates a draft and saves one revision per document. Returns the draft id; head = docs.length + 1. */
+export async function draftWith(owner: string, ...docs: Record<string, unknown>[]): Promise<string> {
+  const created = await api(owner, 'POST', '/v1/drafts', {});
+  expect(created.status).toBe(201);
+  let head = 1;
+  for (const document of docs) {
+    const r = await api(owner, 'PUT', `/v1/drafts/${created.body.draft_id}`, { base_revision: head, document });
+    expect(r.status).toBe(200);
+    head = r.body.head_revision;
+  }
+  return created.body.draft_id;
+}

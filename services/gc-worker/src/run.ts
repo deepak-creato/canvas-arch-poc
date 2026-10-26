@@ -2,12 +2,15 @@ import { Pool } from 'pg';
 import { log } from '../../shared/log';
 import { expireUploads, markUnattached } from './expire';
 import { GcOptions } from './options';
+import { pruneRevisions, purgeDiscardedDrafts } from './prune';
 
 export type Summary = Record<string, unknown>;
 
 // Cycle order follows plan 7.4. Later tickets add their steps here.
 export const STEPS: Record<string, (pool: Pool, o: GcOptions) => Promise<Summary>> = {
   expireUploads: async (pool, o) => ({ expired: await expireUploads(pool, o) }),
+  purgeDiscardedDrafts: async (pool, o) => ({ purged: await purgeDiscardedDrafts(pool, o) }),
+  pruneRevisions: async (pool, o) => ({ pruned: await pruneRevisions(pool, o) }),
   markUnattached: async (pool, o) => ({ orphaned: await markUnattached(pool, o) }),
 };
 

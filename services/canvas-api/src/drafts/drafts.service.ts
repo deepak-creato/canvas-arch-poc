@@ -162,9 +162,9 @@ export class DraftsService {
       }
       const row = (
         await client.query<DraftRow>(
-          `UPDATE canvas_draft SET status = 'DISCARDED', discarded_at = now(), purge_after = now() + make_interval(days => $2)
+          `UPDATE canvas_draft SET status = 'DISCARDED', discarded_at = now(), purge_after = now() + make_interval(secs => $2)
             WHERE id = $1 RETURNING *`,
-          [draft.id, config.draftPurgeGraceDays],
+          [draft.id, config.draftPurgeGraceSeconds],
         )
       ).rows[0];
       log('info', 'draft discarded', { draft_id: draft.id, owner_id: ownerId });
