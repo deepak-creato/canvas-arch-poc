@@ -139,6 +139,9 @@ services:
 
   ai-worker:
     <<: *app
+    build:
+      context: ./services
+      dockerfile: ai-worker/Dockerfile
     environment:
       <<: *app-env
       SERVICE_NAME: ai-worker
