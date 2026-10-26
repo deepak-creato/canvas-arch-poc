@@ -94,13 +94,13 @@ describe('image renditions', () => {
     expect(sql(`select count(*) from processing_job where asset_id='${id}' and job_type='image-derive'`)).toBe('1');
   });
 
-  it('rejected images and videos get no image renditions', async () => {
+  it('rejected images get no renditions and videos get no image kinds', async () => {
     const bad = await upload('corrupt.png', 'image/png');
     const vid = await upload('sample.mp4', 'video/mp4');
     expect(await waitFor(() => sql(`select upload_status from media_asset where id='${bad}'`) === 'REJECTED')).toBe(true);
     expect(await waitFor(() => sql(`select upload_status from media_asset where id='${vid}'`) === 'VALIDATED')).toBe(true);
     await new Promise((r) => setTimeout(r, 2000));
     expect(renditions(bad)).toEqual([]);
-    expect(renditions(vid)).toEqual([]);
+    expect(renditions(vid).filter((r) => /^(thumbnail|preview)\|/.test(r))).toEqual([]);
   });
 });

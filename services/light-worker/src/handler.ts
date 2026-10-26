@@ -3,6 +3,7 @@ import { Pool } from 'pg';
 import { confirmUpload, UPLOAD_ASSET_COLUMNS, UploadAssetRow } from '../../shared/confirm-upload';
 import { log } from '../../shared/log';
 import { deriveImage } from './derive-image';
+import { deriveVideo } from './derive-video';
 import { parseObjectCreated } from './event';
 import { rejectAsset, validateAsset } from './validate';
 
@@ -37,7 +38,9 @@ export async function handleMessage(pool: Pool, s3: S3Client, body: string, mess
   if (r.ok) {
     // Both steps are idempotent, so a redelivered message resumes wherever the last attempt stopped.
     if ((await validateAsset(pool, s3, asset.id, messageId)) === 'busy') return 'retry';
+    // Each derive only acts on its own kind and returns 'done' for the other.
     if ((await deriveImage(pool, s3, asset.id, messageId)) === 'busy') return 'retry';
+    if ((await deriveVideo(pool, s3, asset.id, messageId)) === 'busy') return 'retry';
     return 'ack';
   }
   if (REJECTING.has(r.code)) {
