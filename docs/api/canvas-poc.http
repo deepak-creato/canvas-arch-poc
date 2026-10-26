@@ -1,0 +1,151 @@
+### Canvas Editor POC API collection (VS Code REST Client / IntelliJ HTTP Client).
+### Run requests top to bottom. Responses feed the variables below with `# @name` captures.
+### Local only: fake owner identity via X-Owner-Id, no real auth.
+
+@api = http://127.0.0.1:3000
+@owner = demo-owner-1
+@gc = http://127.0.0.1:3104
+@transcoder = http://127.0.0.1:3103
+
+### Health
+GET {{api}}/healthz
+
+### 1. Reserve an upload. sha256 = `sha256sum fixtures/sample-5.jpg`, size = `stat -c%s fixtures/sample-5.jpg`
+# @name upload
+POST {{api}}/v1/uploads
+X-Owner-Id: {{owner}}
+Content-Type: application/json
+
+{ "sha256": "<64 hex chars>", "content_type": "image/jpeg", "size_bytes": 12345, "filename": "sample-5.jpg" }
+
+### 2. PUT the bytes to upload_url from the response, with the headers in upload_headers:
+###    curl -X PUT "<upload_url>" -H "Content-Type: image/jpeg" --data-binary @fixtures/sample-5.jpg
+
+@assetId = {{upload.response.body.asset_id}}
+
+### 3. Tell the API the upload is done (optional: the S3 event does the same)
+POST {{api}}/v1/uploads/{{assetId}}/complete
+X-Owner-Id: {{owner}}
+
+### 4. Poll until processing_status is READY (PENDING | PROCESSING | READY | FAILED | REJECTED | EXPIRED)
+GET {{api}}/v1/assets/{{assetId}}
+X-Owner-Id: {{owner}}
+
+### 5. Create a draft (document optional; default is an empty canvas)
+# @name draft
+POST {{api}}/v1/drafts
+X-Owner-Id: {{owner}}
+Content-Type: application/json
+
+{ "document": { "version": 1, "canvas": { "width": 1080, "height": 1080 },
+  "elements": [ { "id": "e0", "type": "media", "asset_id": "{{assetId}}", "x": 0, "y": 0, "width": 100, "height": 100 } ] } }
+
+@draftId = {{draft.response.body.draft_id}}
+
+### 6. Save the next revision. A stale base_revision returns 409 REVISION_CONFLICT.
+PUT {{api}}/v1/drafts/{{draftId}}
+X-Owner-Id: {{owner}}
+Content-Type: application/json
+
+{ "base_revision": 1, "document": { "version": 1, "canvas": { "width": 1080, "height": 1080 },
+  "elements": [ { "id": "e0", "type": "media", "asset_id": "{{assetId}}", "x": 10, "y": 0, "width": 100, "height": 100 } ] } }
+
+### 7. Read, list, revisions, restore an old revision (creates a new head)
+GET {{api}}/v1/drafts/{{draftId}}
+X-Owner-Id: {{owner}}
+
+###
+GET {{api}}/v1/drafts
+X-Owner-Id: {{owner}}
+
+###
+GET {{api}}/v1/drafts/{{draftId}}/revisions
+X-Owner-Id: {{owner}}
+
+###
+POST {{api}}/v1/drafts/{{draftId}}/revisions/1/restore
+X-Owner-Id: {{owner}}
+
+### 8. Mock AI layout (202 first time, 200 cached: true afterwards)
+# @name ai
+POST {{api}}/v1/drafts/{{draftId}}/ai-layouts
+X-Owner-Id: {{owner}}
+Content-Type: application/json
+
+{ "asset_ids": ["{{assetId}}"], "seed": 7 }
+
+###
+GET {{api}}/v1/ai-layouts/{{ai.response.body.generation_id}}
+X-Owner-Id: {{owner}}
+
+### Accept the READY layout as a new AI_GENERATION revision
+POST {{api}}/v1/drafts/{{draftId}}/ai-layouts/{{ai.response.body.generation_id}}/accept
+X-Owner-Id: {{owner}}
+Content-Type: application/json
+
+{ "base_revision": 2 }
+
+### 9. Publish an exact revision. Idempotency-Key is required. One publication per draft.
+# @name pub
+POST {{api}}/v1/drafts/{{draftId}}/publications
+X-Owner-Id: {{owner}}
+Idempotency-Key: demo-key-1
+Content-Type: application/json
+
+{ "revision": 1 }
+
+@pubId = {{pub.response.body.publication_id}}
+
+### 10. Poll. status goes REQUESTED > WAITING_FOR_ASSETS > TRANSCODING > AWAITING_CANVAS
+GET {{api}}/v1/publications/{{pubId}}
+X-Owner-Id: {{owner}}
+
+### 11. In AWAITING_CANVAS: get an upload URL for the rendered canvas, PUT the file, then confirm
+# @name canvas
+POST {{api}}/v1/publications/{{pubId}}/canvas-upload
+X-Owner-Id: {{owner}}
+Content-Type: application/json
+
+{ "content_type": "image/png", "size_bytes": 1234 }
+
+### curl -X PUT "<upload_url>" -H "Content-Type: image/png" --data-binary @fixtures/canvas-render.png
+
+###
+POST {{api}}/v1/publications/{{pubId}}/canvas-uploaded
+X-Owner-Id: {{owner}}
+Content-Type: application/json
+
+{ "content_type": "image/png" }
+
+### 12. After a failure: retry on the same publication (reuses READY finals)
+POST {{api}}/v1/publications/{{pubId}}/retry
+X-Owner-Id: {{owner}}
+
+### Draft status roll-up (assets + publication)
+GET {{api}}/v1/drafts/{{draftId}}/status
+X-Owner-Id: {{owner}}
+
+### Discard (soft) and restore a draft
+DELETE {{api}}/v1/drafts/{{draftId}}
+X-Owner-Id: {{owner}}
+
+###
+POST {{api}}/v1/drafts/{{draftId}}/restore
+X-Owner-Id: {{owner}}
+
+### ---- Operations (gc-worker, localhost only) ----
+
+### Run one GC cycle, or named steps: ?step=sweep or ?step=reconcileUploads,reconcileDrift
+POST {{gc}}/run
+
+### Failed or stuck jobs, DLQ contents, move DLQ messages back to the source queue
+GET {{gc}}/ops/jobs
+
+###
+GET {{gc}}/ops/dlq
+
+###
+POST {{gc}}/ops/redrive
+
+### Mock transcoder job state for an asset: QUEUED | RUNNING | COMPLETE | ERROR
+GET {{transcoder}}/jobs?asset_id={{assetId}}
