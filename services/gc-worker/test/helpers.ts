@@ -16,6 +16,9 @@ export const opts = (ownerId: string, over: Partial<GcOptions> = {}): GcOptions 
   unattachedGraceSeconds: 0,
   orphanGraceSeconds: 0,
   jobStaleSeconds: 3600,
+  reconcileAfterSeconds: 0,
+  strayGraceSeconds: 0,
+  deleteStrays: false,
   revisionKeepLast: 1,
   revisionMinAgeSeconds: 0,
   ownerId,
@@ -23,6 +26,9 @@ export const opts = (ownerId: string, over: Partial<GcOptions> = {}): GcOptions 
 });
 
 export interface SeedAsset {
+  id?: string;
+  /** Default is outside staging/ so S3 events do not wake the light-worker on seeded rows. */
+  key?: string;
   owner: string;
   kind?: 'IMAGE' | 'VIDEO';
   upload_status?: string;
@@ -35,8 +41,8 @@ export interface SeedAsset {
 }
 
 export async function seedAsset(a: SeedAsset): Promise<{ id: string; key: string }> {
-  const id = randomUUID();
-  const key = `staging/${a.owner}/${id}/source`;
+  const id = a.id ?? randomUUID();
+  const key = a.key ?? `gc-test/${a.owner}/${id}/source`;
   await pool.query(
     `INSERT INTO media_asset (id, owner_id, kind, client_sha256, content_type, size_bytes, original_bucket, original_key,
                               upload_status, retention_status, orphaned_at, upload_expires_at)
@@ -80,7 +86,10 @@ export async function draftWith(owner: string, ...docs: Record<string, unknown>[
 
 const FIXTURE = resolve(__dirname, '../../../fixtures/sample-5.jpg');
 
-/** A real JPEG uploaded to the ingest bucket and recorded as UPLOADED, with no job yet: the light-worker can process it for real. */
+/**
+ * A real JPEG in the ingest bucket, recorded as UPLOADED, with no job yet. The key is outside staging/, so no S3
+ * event fires: the light-worker only works on it when a test sends the event.
+ */
 export async function seedUploadedFixture(owner: string) {
   const { PutObjectCommand } = await import('@aws-sdk/client-s3');
   const { createS3 } = await import('../../shared/s3');
@@ -94,4 +103,31 @@ export async function seedUploadedFixture(owner: string) {
   });
   await createS3().send(new PutObjectCommand({ Bucket: config.bucketIngest, Key: a.key, Body: bytes, ContentType: 'image/jpeg' }));
   return a;
+}
+
+/** An asset row plus an original and one recorded rendition in S3. */
+export async function seedWithObjects(owner: string, over: Partial<SeedAsset> = {}) {
+  const { PutObjectCommand } = await import('@aws-sdk/client-s3');
+  const { createS3 } = await import('../../shared/s3');
+  const s3 = createS3();
+  const a = await seedAsset({ owner, ...over });
+  const derived = `derived/${a.id}/thumbnail/v1/w320.webp`;
+  await pool.query(
+    `INSERT INTO media_rendition (asset_id, kind, tier, bucket, s3_key, status) VALUES ($1, 'thumbnail', 'DRAFT', $2, $3, 'READY')`,
+    [a.id, config.bucketDerived, derived],
+  );
+  await s3.send(new PutObjectCommand({ Bucket: config.bucketDerived, Key: derived, Body: 'x' }));
+  await s3.send(new PutObjectCommand({ Bucket: config.bucketIngest, Key: a.key, Body: 'x' }));
+  return { ...a, derived };
+}
+
+export async function objectExists(bucket: string, Key: string): Promise<boolean> {
+  const { HeadObjectCommand } = await import('@aws-sdk/client-s3');
+  const { createS3 } = await import('../../shared/s3');
+  try {
+    await createS3().send(new HeadObjectCommand({ Bucket: bucket, Key }));
+    return true;
+  } catch {
+    return false;
+  }
 }

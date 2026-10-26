@@ -5,6 +5,7 @@ import { createS3 } from '../../shared/s3';
 import { createSqs } from '../../shared/sqs';
 import { GcOptions } from './options';
 import { pruneRevisions, purgeDiscardedDrafts } from './prune';
+import { reconcileDrift, reconcileStrays, reconcileUploads } from './reconcile';
 import { reapStuckJobs, requeueJobs } from './jobs';
 import { sweep } from './sweep';
 
@@ -15,20 +16,23 @@ export type Summary = Record<string, unknown>;
 
 // Cycle order follows plan 7.4. Later tickets add their steps here.
 export const STEPS: Record<string, (pool: Pool, o: GcOptions) => Promise<Summary>> = {
+  reconcileUploads: async (pool, o) => ({ ...(await reconcileUploads(pool, s3, sqs, o)) }),
   expireUploads: async (pool, o) => ({ expired: await expireUploads(pool, o) }),
   purgeDiscardedDrafts: async (pool, o) => ({ purged: await purgeDiscardedDrafts(pool, o) }),
   pruneRevisions: async (pool, o) => ({ pruned: await pruneRevisions(pool, o) }),
   markUnattached: async (pool, o) => ({ orphaned: await markUnattached(pool, o) }),
+  sweep: async (pool, o) => ({ ...(await sweep(pool, s3, o)) }),
   reapStuckJobs: async (pool, o) => ({ reaped: await reapStuckJobs(pool, o) }),
   requeueJobs: async (pool, o) => ({ requeued: await requeueJobs(pool, sqs, o) }),
-  sweep: async (pool, o) => ({ ...(await sweep(pool, s3, o)) }),
+  reconcileDrift: async (pool, o) => ({ ...(await reconcileDrift(pool, s3, sqs, o)) }),
+  reconcileStrays: async (pool, o) => ({ strays: await reconcileStrays(pool, s3, o) }),
 };
 
 const LOCK_KEY = 7_310_031; // arbitrary, shared by every gc-worker
 
-/** Runs the steps in order under a Postgres advisory lock. Returns null when another run holds it. */
+/** Runs the steps (all, or the comma-separated `only`) in order under a Postgres advisory lock. Returns null when another run holds it. */
 export async function runCycle(pool: Pool, o: GcOptions, only?: string): Promise<Summary | null> {
-  const names = only ? [only] : Object.keys(STEPS);
+  const names = only ? only.split(',') : Object.keys(STEPS);
   for (const n of names) if (!STEPS[n]) throw new Error(`unknown step ${n}`);
   const client = await pool.connect();
   try {

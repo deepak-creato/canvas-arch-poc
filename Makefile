@@ -1,4 +1,4 @@
-.PHONY: bootstrap teardown preflight health smoke-sfn up down reset logs ps verify-s3 verify-events verify verify-schema migrate psql test verify-m2 gc-run gc-jobs gc-dlq gc-redrive
+.PHONY: bootstrap teardown preflight health smoke-sfn up down reset logs ps verify-s3 verify-events verify verify-schema migrate psql test verify-m2 gc-run gc-jobs gc-dlq gc-redrive gc-reconcile
 
 # One command from a fresh clone to a verified stack (M1 exit demo)
 bootstrap:
@@ -79,3 +79,7 @@ gc-dlq:
 
 gc-redrive:
 	@curl -fsS -X POST "http://127.0.0.1:$${HOST_PORT_GC:-3104}/ops/redrive"; echo
+
+# Missed events and storage drift (POC-036); strays are deleted only with GC_DELETE_STRAYS=true
+gc-reconcile:
+	@$(MAKE) --no-print-directory gc-run STEP=reconcileUploads,reconcileDrift,reconcileStrays

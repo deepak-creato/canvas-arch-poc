@@ -29,7 +29,14 @@ const ref = (a: UploadAssetRow) => ({ id: a.id, bucket: a.original_bucket, key: 
  * the validate job exists. Used by both the API "complete" call and the S3 event consumer,
  * so whichever arrives first does the work and the other is a no-op.
  */
-export async function confirmUpload(pool: Pool, s3: S3Client, a: UploadAssetRow, correlationId: string): Promise<ConfirmResult> {
+export async function confirmUpload(
+  pool: Pool,
+  s3: S3Client,
+  a: UploadAssetRow,
+  correlationId: string,
+  // Reconciliation confirms an object that arrived just before the reservation lapsed (POC-036).
+  opts: { ignoreExpiry?: boolean } = {},
+): Promise<ConfirmResult> {
   const ctx = { asset_id: a.id, correlation_id: correlationId };
 
   if (a.upload_status === 'UPLOADED' || a.upload_status === 'VALIDATED') {
@@ -39,7 +46,7 @@ export async function confirmUpload(pool: Pool, s3: S3Client, a: UploadAssetRow,
   if (a.upload_status !== 'PENDING_UPLOAD') {
     return { ok: false, code: 'UPLOAD_NOT_COMPLETABLE', message: `asset is ${a.upload_status}` };
   }
-  if (a.upload_expires_at.getTime() < Date.now()) {
+  if (!opts.ignoreExpiry && a.upload_expires_at.getTime() < Date.now()) {
     return { ok: false, code: 'UPLOAD_EXPIRED', message: 'upload reservation expired' };
   }
 

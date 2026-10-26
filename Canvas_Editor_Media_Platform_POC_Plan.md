@@ -631,6 +631,12 @@ Upload / Dedup
 | Final tier scope               | Only videos get a final rendition (mock fixture at a deterministic key); images are published from the original |
 | Canvas upload endpoints        | Added `POST /v1/publications/{id}/canvas-upload` (fresh presigned URL) and `POST /v1/publications/{id}/retry`; the plan flow needed both |
 | Failed publication and draft   | Draft stays `PUBLISHING` while its publication is `FAILED`; retry on the same row is the way out. No un-freeze or cancel in the POC (open for M6/M7) |
+| GC schedule                    | `GC_INTERVAL_SECONDS=0` in compose (manual `make gc-run`), so integration tests are not racing a sweep. Production design: a timer or EventBridge schedule |
+| Grace periods                  | Seconds, per policy: upload expiry, unattached, orphan, revision keep/age, job stale, reconcile, stray, draft purge. Minutes in `.env.example`, days in code defaults |
+| Failed publication and GC      | A `FAILED` publication keeps its draft `PUBLISHING`, so its revision and assets stay referenced and GC never touches them. Still no cancel/un-freeze (open for M7) |
+| DLQ redrive                    | Receive/send/delete, not `StartMessageMoveTask` (not relied on in LocalStack). `final-transcode` jobs excluded: their messages hold Step Functions tokens, use publication retry |
+| Stray objects                  | Reported always; deleted only with `GC_DELETE_STRAYS=true`, after the stray grace and a fresh DB check. Unrecognised key shapes are never touched |
+| Event/GC race window           | A derive job row is created when the light-worker first handles the event, so an asset with no job row yet is not protected by the active-job check; the worker ignores events for `DELETING`/`DELETED` and the orphan grace makes the window negligible. Revalidate on AWS |
 
 
 **Confidence level:** High for architecture coverage and milestone dependencies; medium for elapsed timeline until LocalStack support and team capacity are verified.

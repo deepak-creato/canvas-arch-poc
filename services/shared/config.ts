@@ -43,6 +43,10 @@ export const config = {
   gcUnattachedGraceSeconds: int(process.env.GC_UNATTACHED_GRACE_SECONDS, 24 * 3600),
   gcOrphanGraceSeconds: int(process.env.GC_ORPHAN_GRACE_SECONDS, 7 * 24 * 3600),
   gcJobStaleSeconds: int(process.env.GC_JOB_STALE_SECONDS, 3600),
+  gcReconcileAfterSeconds: int(process.env.GC_RECONCILE_AFTER_SECONDS, 300),
+  gcStrayGraceSeconds: int(process.env.GC_STRAY_GRACE_SECONDS, 3600),
+  // Stray objects are always reported; deleted only when this is on.
+  gcDeleteStrays: process.env.GC_DELETE_STRAYS === 'true',
   gcRevisionKeepLast: int(process.env.GC_REVISION_KEEP_LAST, 20),
   gcRevisionMinAgeSeconds: int(process.env.GC_REVISION_MIN_AGE_SECONDS, 24 * 3600),
 };
