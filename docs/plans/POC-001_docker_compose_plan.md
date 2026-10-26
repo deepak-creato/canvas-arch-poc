@@ -22,7 +22,7 @@ Out of scope (belongs to other tickets):
 
 | Service | Image / build | Host port | Purpose | Health check |
 | --- | --- | --- | --- | --- |
-| `localstack` | `localstack/localstack:3.8.1` (pinned; see risk R1) | 4566 | S3, SQS, EventBridge, Step Functions | `curl -f http://localhost:4566/_localstack/health` |
+| `localstack` | `localstack/localstack:2026.10.2` (pinned; was 3.8.1, upgraded for dashboard support; see risk R1) | 4566 | S3, SQS, EventBridge, Step Functions | `curl -f http://localhost:4566/_localstack/health` |
 | `postgres` | `postgres:16.4-alpine` | 5433 (host 5432 was taken) | Source of truth | `pg_isready -U canvas -d canvas` |
 | `redis` | `redis:7.4-alpine` | 6380 (host 6379 was taken) | Status cache, locks | `redis-cli ping` |
 | `canvas-api` | build `./services/canvas-api` | 3000 | NestJS REST API | `GET /healthz` |
@@ -62,7 +62,7 @@ All settings come from `.env` (copied from `.env.example`). Compose reads it wit
 | `DATABASE_URL` | `postgres://canvas:canvas@postgres:5432/canvas` | API, workers |
 | `REDIS_URL` | `redis://redis:6379` | API, workers |
 | `BUCKET_INGEST` / `BUCKET_DERIVED` / `BUCKET_PUBLISHED` | `media-ingest-poc` / `media-derived-poc` / `media-published-poc` | API, workers |
-| `LOCALSTACK_IMAGE_TAG` | `3.8.1` | compose |
+| `LOCALSTACK_IMAGE_TAG` | `2026.10.2` | compose |
 | `LOCALSTACK_AUTH_TOKEN` | empty | localstack, only if the chosen image needs it |
 
 Presigned URLs: the API signs URLs against `http://localhost:4566` (host-visible) while it calls S3 internally via `http://localstack:4566`. Keep a separate `S3_PUBLIC_ENDPOINT` variable for this, otherwise browser and test-client uploads fail.

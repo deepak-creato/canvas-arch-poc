@@ -30,7 +30,7 @@ x-health: &health
 
 services:
   localstack:
-    image: localstack/localstack:${LOCALSTACK_IMAGE_TAG:-3.8.1}
+    image: localstack/localstack:${LOCALSTACK_IMAGE_TAG:-2026.10.2}
     ports:
       - "127.0.0.1:${HOST_PORT_LOCALSTACK:-4566}:4566"
     environment:
@@ -47,8 +47,8 @@ services:
       test:
         - CMD-SHELL
         - >-
-          curl -sf http://localhost:4566/_localstack/health | python3 -c
-          "import sys,json; s=json.load(sys.stdin)['services'];
+          python3 -c "import sys,json,urllib.request as u;
+          s=json.load(u.urlopen('http://localhost:4566/_localstack/health'))['services'];
           sys.exit(0 if all(s.get(k) in ('available','running') for k in ('s3','sqs','events','stepfunctions')) else 1)"
       <<: *health
       start_period: 15s

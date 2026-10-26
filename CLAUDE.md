@@ -51,4 +51,4 @@ NestJS API, PostgreSQL, Redis, Sharp and FFmpeg workers, Docker Compose. Pin eve
 
 ## Status
 
-POC-001 done: compose stack healthy with stub services. Next ticket: POC-002 (buckets).
+POC-001 (compose stack, stub services) and POC-002 (S3 buckets via LocalStack init hook, `make verify-s3`) done. Next ticket: POC-003 (queues, EventBridge, DLQs).
