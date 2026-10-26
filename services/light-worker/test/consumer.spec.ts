@@ -51,7 +51,8 @@ async function uploadWithoutComplete() {
 // The worker confirms the upload and then validates it, so UPLOADED may already be VALIDATED.
 const confirmed = (id: string) => status(id) !== 'PENDING_UPLOAD';
 const status = (id: string) => sql(`select upload_status from media_asset where id='${id}'`);
-const jobs = (id: string) => sql(`select count(*) from processing_job where asset_id='${id}'`);
+const jobs = (id: string) =>
+  sql(`select count(*) from processing_job where asset_id='${id}' and job_type='validate'`);
 
 describe('light-worker consumer', () => {
   it('S3 event from a presigned PUT confirms the asset without a complete call, with one job', async () => {

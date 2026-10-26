@@ -43,7 +43,7 @@ async function upload(bytes: Buffer, contentType: string, opts: { claimedSha?: s
     reason: row(id, 'reject_reason'),
     server_sha256: row(id, 'server_sha256'),
     metadata: JSON.parse(row(id, 'metadata')),
-    jobStatus: sql(`select status from processing_job where asset_id='${id}'`),
+    jobStatus: sql(`select status from processing_job where asset_id='${id}' and job_type='validate'`),
     sha256,
   };
 }

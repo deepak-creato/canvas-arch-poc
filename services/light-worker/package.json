@@ -5,7 +5,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "start": "node dist/light-worker/src/main.js",
-    "test": "jest"
+    "test": "jest --runInBand"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "3.1156.0",

@@ -2,6 +2,7 @@ import { S3Client } from '@aws-sdk/client-s3';
 import { Pool } from 'pg';
 import { confirmUpload, UPLOAD_ASSET_COLUMNS, UploadAssetRow } from '../../shared/confirm-upload';
 import { log } from '../../shared/log';
+import { deriveImage } from './derive-image';
 import { parseObjectCreated } from './event';
 import { rejectAsset, validateAsset } from './validate';
 
@@ -34,7 +35,10 @@ export async function handleMessage(pool: Pool, s3: S3Client, body: string, mess
   // The event can beat the API "complete" call; confirmUpload makes either order safe.
   const r = await confirmUpload(pool, s3, asset, messageId);
   if (r.ok) {
-    return (await validateAsset(pool, s3, asset.id, messageId)) === 'done' ? 'ack' : 'retry';
+    // Both steps are idempotent, so a redelivered message resumes wherever the last attempt stopped.
+    if ((await validateAsset(pool, s3, asset.id, messageId)) === 'busy') return 'retry';
+    if ((await deriveImage(pool, s3, asset.id, messageId)) === 'busy') return 'retry';
+    return 'ack';
   }
   if (REJECTING.has(r.code)) {
     await rejectAsset(pool, asset.id, r.code, 'PENDING_UPLOAD');
