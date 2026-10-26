@@ -3,12 +3,15 @@ import { Pool } from 'pg';
 import { confirmUpload, UPLOAD_ASSET_COLUMNS, UploadAssetRow } from '../../shared/confirm-upload';
 import { log } from '../../shared/log';
 import { parseObjectCreated } from './event';
+import { rejectAsset, validateAsset } from './validate';
 
 // ack: delete the message. retry: leave it; SQS redelivers it, then moves it to the DLQ.
 export type Outcome = 'ack' | 'retry';
 
 // Failures that retrying cannot fix. Rejecting such assets is POC-009.
-const TERMINAL = new Set(['UPLOAD_EXPIRED', 'UPLOAD_NOT_COMPLETABLE', 'SIZE_MISMATCH', 'CONTENT_TYPE_MISMATCH']);
+const TERMINAL = new Set(['UPLOAD_EXPIRED', 'UPLOAD_NOT_COMPLETABLE']);
+// The stored object disagrees with what was reserved: the upload is bad, so reject it.
+const REJECTING = new Set(['SIZE_MISMATCH', 'CONTENT_TYPE_MISMATCH']);
 
 export async function handleMessage(pool: Pool, s3: S3Client, body: string, messageId: string): Promise<Outcome> {
   const ev = parseObjectCreated(body);
@@ -31,8 +34,11 @@ export async function handleMessage(pool: Pool, s3: S3Client, body: string, mess
   // The event can beat the API "complete" call; confirmUpload makes either order safe.
   const r = await confirmUpload(pool, s3, asset, messageId);
   if (r.ok) {
-    // POC-009 runs the validate job from here.
-    log('info', 'validate job ready', { ...ctx, status: r.status });
+    return (await validateAsset(pool, s3, asset.id, messageId)) === 'done' ? 'ack' : 'retry';
+  }
+  if (REJECTING.has(r.code)) {
+    await rejectAsset(pool, asset.id, r.code, 'PENDING_UPLOAD');
+    log('warn', 'asset rejected', { ...ctx, reason: r.code, detail: r.message });
     return 'ack';
   }
   if (TERMINAL.has(r.code)) {

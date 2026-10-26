@@ -1,6 +1,7 @@
 // Integration test: needs the compose stack (make up) with light-worker running.
 import { execSync } from 'child_process';
 import { createHash, randomBytes } from 'crypto';
+import { readFileSync } from 'fs';
 import { resolve } from 'path';
 import { GetQueueAttributesCommand, SendMessageCommand, SQSClient } from '@aws-sdk/client-sqs';
 
@@ -35,37 +36,40 @@ const event = (key: string) =>
 
 // Reserve and PUT, but never call "complete": only the S3 event can advance the asset.
 async function uploadWithoutComplete() {
-  const bytes = randomBytes(64);
+  const bytes = readFileSync(resolve(__dirname, '../../../fixtures/sample-1.png'));
+  const owner = `w-${randomBytes(4).toString('hex')}`;
   const sha256 = createHash('sha256').update(bytes).digest('hex');
   const res = await fetch(`${API}/v1/uploads`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json', 'x-owner-id': 'w-test' },
-    body: JSON.stringify({ sha256, content_type: 'image/png', size_bytes: 64 }),
+    headers: { 'content-type': 'application/json', 'x-owner-id': owner },
+    body: JSON.stringify({ sha256, content_type: 'image/png', size_bytes: bytes.length }),
   });
   const b: any = await res.json();
   await fetch(b.upload_url, { method: 'PUT', headers: b.upload_headers, body: new Uint8Array(bytes) });
   return b.asset_id as string;
 }
+// The worker confirms the upload and then validates it, so UPLOADED may already be VALIDATED.
+const confirmed = (id: string) => status(id) !== 'PENDING_UPLOAD';
 const status = (id: string) => sql(`select upload_status from media_asset where id='${id}'`);
 const jobs = (id: string) => sql(`select count(*) from processing_job where asset_id='${id}'`);
 
 describe('light-worker consumer', () => {
-  it('S3 event from a presigned PUT moves the asset to UPLOADED with one job', async () => {
+  it('S3 event from a presigned PUT confirms the asset without a complete call, with one job', async () => {
     const id = await uploadWithoutComplete();
-    expect(await waitFor(() => status(id) === 'UPLOADED')).toBe(true);
+    expect(await waitFor(() => confirmed(id))).toBe(true);
     expect(jobs(id)).toBe('1');
   });
 
   it('duplicate events do not create duplicate jobs', async () => {
     const id = await uploadWithoutComplete();
-    expect(await waitFor(() => status(id) === 'UPLOADED')).toBe(true);
+    expect(await waitFor(() => confirmed(id))).toBe(true);
     const key = sql(`select original_key from media_asset where id='${id}'`);
     for (let i = 0; i < 3; i++) {
       await sqs.send(new SendMessageCommand({ QueueUrl: QUEUE, MessageBody: event(key) }));
     }
     await new Promise((r) => setTimeout(r, 8000));
     expect(jobs(id)).toBe('1');
-    expect(status(id)).toBe('UPLOADED');
+    expect(status(id)).toBe('VALIDATED');
   });
 
   it('drops events for unknown objects', async () => {

@@ -40,7 +40,8 @@ describe('POST /v1/uploads/:id/complete', () => {
     const done = await call(`/v1/uploads/${b.asset_id}/complete`, o);
     expect(done.status).toBe(200);
     expect(((await done.json()) as any).upload_status).toBe('UPLOADED');
-    expect(sql(`select upload_status from media_asset where id='${b.asset_id}'`)).toBe('UPLOADED');
+    // The light-worker may already have validated (here: rejected, the bytes are random) the asset.
+    expect(sql(`select upload_status from media_asset where id='${b.asset_id}'`)).not.toBe('PENDING_UPLOAD');
   });
 
   it('is idempotent and creates exactly one validate job', async () => {
