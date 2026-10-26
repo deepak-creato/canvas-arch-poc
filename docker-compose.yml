@@ -124,6 +124,9 @@ services:
 
   light-worker:
     <<: *app
+    build:
+      context: ./services
+      dockerfile: light-worker/Dockerfile
     environment:
       <<: *app-env
       SERVICE_NAME: light-worker

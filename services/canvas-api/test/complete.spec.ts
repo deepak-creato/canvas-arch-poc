@@ -54,8 +54,7 @@ describe('POST /v1/uploads/:id/complete', () => {
 
   it('404 for another owner or unknown id, 400 for bad id or missing owner', async () => {
     const o = owner();
-    const { b, bytes } = await reserve(o);
-    await put(b, bytes);
+    const { b } = await reserve(o); // no PUT: the light-worker would otherwise confirm it from the S3 event
     expect((await call(`/v1/uploads/${b.asset_id}/complete`, owner())).status).toBe(404);
     expect((await call(`/v1/uploads/00000000-0000-4000-8000-000000000000/complete`, o)).status).toBe(404);
     expect((await call(`/v1/uploads/not-a-uuid/complete`, o)).status).toBe(400);
@@ -66,8 +65,8 @@ describe('POST /v1/uploads/:id/complete', () => {
   it('rejects an expired reservation', async () => {
     const o = owner();
     const { b, bytes } = await reserve(o);
-    await put(b, bytes);
     sql(`update media_asset set upload_expires_at = now() - interval '1 minute' where id='${b.asset_id}'`);
+    await put(b, bytes);
     const r = await call(`/v1/uploads/${b.asset_id}/complete`, o);
     expect(r.status).toBe(409);
     expect(((await r.json()) as any).code).toBe('UPLOAD_EXPIRED');

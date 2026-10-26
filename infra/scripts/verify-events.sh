@@ -4,6 +4,13 @@ set -eu
 cd "$(dirname "$0")/../.."
 [ -f .env ] && . ./.env
 
+# light-worker (POC-008) consumes light-processing and would steal the probe message,
+# so pause it for the duration of the check and restore it on exit.
+if [ -n "$(docker compose ps --status running -q light-worker 2>/dev/null)" ]; then
+  docker compose stop light-worker >/dev/null
+  trap 'docker compose start light-worker >/dev/null' EXIT
+fi
+
 docker compose exec -T \
   -e B_INGEST="${BUCKET_INGEST:-media-ingest-poc}" \
   -e PREFIX="${UPLOAD_STAGING_PREFIX:-staging/}" \

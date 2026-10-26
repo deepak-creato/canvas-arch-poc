@@ -10,6 +10,8 @@ export const config = {
   stagingPrefix: process.env.UPLOAD_STAGING_PREFIX ?? 'staging/',
   maxImageBytes: int(process.env.MAX_IMAGE_BYTES, 20 * 1024 * 1024),
   maxVideoBytes: int(process.env.MAX_VIDEO_BYTES, 200 * 1024 * 1024),
+  queueLightProcessingUrl:
+    process.env.QUEUE_LIGHT_PROCESSING_URL ?? 'http://localhost:4566/000000000000/light-processing',
   uploadTtlSeconds: int(process.env.UPLOAD_URL_TTL_SECONDS, 900),
 };
 

@@ -57,3 +57,4 @@ verify-schema:
 # Integration tests for canvas-api; need the stack running (make up)
 test:
 	cd services/canvas-api && npm test
+	cd services/light-worker && npm test -- --forceExit
