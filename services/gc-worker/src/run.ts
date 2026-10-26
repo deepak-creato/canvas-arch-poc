@@ -1,8 +1,12 @@
 import { Pool } from 'pg';
 import { log } from '../../shared/log';
 import { expireUploads, markUnattached } from './expire';
+import { createS3 } from '../../shared/s3';
 import { GcOptions } from './options';
 import { pruneRevisions, purgeDiscardedDrafts } from './prune';
+import { sweep } from './sweep';
+
+const s3 = createS3();
 
 export type Summary = Record<string, unknown>;
 
@@ -12,6 +16,7 @@ export const STEPS: Record<string, (pool: Pool, o: GcOptions) => Promise<Summary
   purgeDiscardedDrafts: async (pool, o) => ({ purged: await purgeDiscardedDrafts(pool, o) }),
   pruneRevisions: async (pool, o) => ({ pruned: await pruneRevisions(pool, o) }),
   markUnattached: async (pool, o) => ({ orphaned: await markUnattached(pool, o) }),
+  sweep: async (pool, o) => ({ ...(await sweep(pool, s3, o)) }),
 };
 
 const LOCK_KEY = 7_310_031; // arbitrary, shared by every gc-worker

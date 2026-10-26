@@ -47,7 +47,7 @@ export async function seedAsset(a: SeedAsset): Promise<{ id: string; key: string
 }
 
 export const asset = async (id: string) =>
-  (await pool.query(`SELECT upload_status, retention_status, ref_count, orphaned_at FROM media_asset WHERE id = $1`, [id])).rows[0];
+  (await pool.query(`SELECT upload_status, retention_status, ref_count, orphaned_at, deleted_at, delete_attempts, delete_error FROM media_asset WHERE id = $1`, [id])).rows[0];
 
 // canvas-api, for tests that go through the real save path
 const API = process.env.API_URL ?? 'http://127.0.0.1:3000';
