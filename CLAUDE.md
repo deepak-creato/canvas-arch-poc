@@ -53,7 +53,7 @@ NestJS API, PostgreSQL, Redis, Sharp and FFmpeg workers, Docker Compose. Pin eve
 - `docs/plans/` — per-ticket implementation plans
 - `docs/api/`, `docs/architecture.md`, `docs/runbook.md`, `docs/validation-checklist.md` — handoff docs
 - `docs/ai/` — AI-assistant context documents
-- `web/` — Vite + React test UI (POC-041); dev-server proxy instead of API CORS, host-run, not in Compose
+- `web/` — Vite + React: user studio at `/` (select, AI layout, canvas editor, publish) and developer console at `#/dev` (POC-041); dev-server proxy instead of API CORS, host-run, not in Compose
 
 ## Status
 

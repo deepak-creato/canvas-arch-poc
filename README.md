@@ -65,7 +65,7 @@ All ports bind to `127.0.0.1` and can be changed in `.env`.
 
 ## Web UI
 
-A minimal Vite + React client for driving the whole flow by hand: upload (SHA-256, dedup, rejects), asset processing, draft edit with revisions and conflicts, mock AI layouts, publish with canvas upload and retry, GC and DLQ operations. It logs every request with its status, error code and correlation ID.
+`http://127.0.0.1:5173/` is the user-facing studio: pick photos/videos, generate an AI layout (or arrange manually), edit on a canvas with layers, drag, resize and undo, autosave a draft, and publish. Publishing draws the design on an HTML canvas in the browser and uploads the PNG through a presigned URL. `http://127.0.0.1:5173/#/dev` is the developer console, a minimal client for driving the whole flow by hand: upload (SHA-256, dedup, rejects), asset processing, draft edit with revisions and conflicts, mock AI layouts, publish with canvas upload and retry, GC and DLQ operations. It logs every request with its status, error code and correlation ID.
 
 ```bash
 make up          # stack must be running
@@ -83,7 +83,7 @@ The dev server proxies `/api` (canvas-api), `/gc` (gc-worker) and `/transcoder` 
 
 ### S3 buckets (POC-002)
 
-`media-ingest-poc`, `media-derived-poc`, `media-published-poc` are created on LocalStack start by `infra/localstack/init/01-buckets.sh` (idempotent; CORS on ingest and published). Check with `make verify-s3` (PUT, HEAD, GET, DELETE on each bucket).
+`media-ingest-poc`, `media-derived-poc`, `media-published-poc` are created on LocalStack start by `infra/localstack/init/01-buckets.sh` (idempotent; CORS on all three, so the browser can draw renditions into a canvas and export a PNG). Check with `make verify-s3` (PUT, HEAD, GET, DELETE on each bucket).
 
 ### Queues and events (POC-003)
 

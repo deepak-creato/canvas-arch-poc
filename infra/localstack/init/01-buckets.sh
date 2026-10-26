@@ -23,8 +23,9 @@ for b in "$INGEST" "$DERIVED" "$PUBLISHED"; do
   fi
 done
 
-# Browser/test-client presigned uploads and reads
-for b in "$INGEST" "$PUBLISHED"; do
+# Browser/test-client presigned uploads and reads. The derived bucket needs it too: the web editor draws
+# renditions into a canvas and exports a PNG, which a cross-origin image without CORS would taint.
+for b in "$INGEST" "$DERIVED" "$PUBLISHED"; do
   aws s3api put-bucket-cors --bucket "$b" --cors-configuration "$CORS"
 done
 

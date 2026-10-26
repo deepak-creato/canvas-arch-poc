@@ -9,7 +9,7 @@ import { Ops } from './screens/Ops';
 
 const TABS = ['Assets', 'Drafts', 'AI layouts', 'Publish', 'Ops'] as const;
 
-export default function App() {
+export default function DevApp() {
   const [owner, setOwnerState] = useState(getOwner());
   const [tab, setTab] = useState<(typeof TABS)[number]>('Assets');
   const [draftId, setDraftId] = useStored<string | undefined>('canvas-poc.draft', undefined);
@@ -25,7 +25,7 @@ export default function App() {
   return (
     <div className="app">
       <header>
-        <b>Canvas POC</b>
+        <a href="#/">← Studio</a> <b>Developer console</b>
         <label>
           owner{' '}
           <input value={owner} onChange={(e) => changeOwner(e.target.value)} size={12} />

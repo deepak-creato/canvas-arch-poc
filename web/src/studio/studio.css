@@ -1,0 +1,65 @@
+.studio { max-width: 1200px; margin: 0 auto; padding: 0 16px 32px; }
+.studio header { display: flex; gap: 16px; align-items: center; padding: 12px 0; border-bottom: 1px solid #ddd; flex-wrap: wrap; }
+.studio .brand { cursor: pointer; font-size: 18px; }
+.studio .spacer { flex: 1; }
+.studio h2 { margin: 16px 0 8px; }
+.studio .stepper { display: flex; gap: 6px; list-style: none; margin: 0; padding: 0; }
+.studio .stepper button { border: 0; background: transparent; color: #888; padding: 4px 10px; border-radius: 14px; }
+.studio .stepper .now button { background: #2f6fed; color: #fff; }
+.studio .stepper .done button { color: #2f6fed; }
+.studio .primary { background: #2f6fed; color: #fff; border-color: #2f6fed; padding: 6px 14px; }
+.studio .primary:disabled { opacity: 0.45; cursor: not-allowed; }
+.studio .toolbar { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+.studio .toolbar h2 { margin-right: auto; }
+.studio .actions { display: flex; gap: 12px; align-items: center; justify-content: flex-end; margin: 14px 0; flex-wrap: wrap; }
+.studio .center { display: flex; flex-direction: column; align-items: center; gap: 8px; margin: 16px 0; }
+.studio .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 12px 0; }
+.studio .drop { border: 2px dashed #aaa; border-radius: 10px; padding: 28px; text-align: center; cursor: pointer; color: #666; }
+.studio .drop.over { border-color: #2f6fed; background: rgba(47, 111, 237, 0.08); }
+.studio .library { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; margin-top: 16px; }
+.studio .tile { position: relative; padding: 0; border: 2px solid transparent; border-radius: 8px; overflow: hidden; background: #eee; text-align: left; }
+.studio .tile.on { border-color: #2f6fed; }
+.studio .tile img, .studio .tile .ph { width: 100%; aspect-ratio: 1; object-fit: cover; display: block; }
+.studio .ph { background: #ddd; display: flex; align-items: center; justify-content: center; color: #777; font-size: 11px; }
+.studio .cap { display: block; padding: 4px 6px; font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; background: #fff; color: #333; }
+.studio .check { position: absolute; top: 6px; right: 6px; background: #2f6fed; color: #fff; border-radius: 50%; width: 22px; height: 22px; text-align: center; line-height: 22px; }
+.studio .vtag { position: absolute; left: 4px; bottom: 4px; background: rgba(0, 0, 0, 0.6); color: #fff; font-size: 10px; padding: 1px 5px; border-radius: 3px; pointer-events: none; }
+.studio .stage { position: relative; background: #fff; box-shadow: 0 0 0 1px #ccc, 0 4px 18px rgba(0, 0, 0, 0.12); overflow: hidden; touch-action: none; flex: none; }
+.studio .el { position: absolute; box-sizing: border-box; }
+.studio .el.editable { cursor: move; }
+.studio .el img { width: 100%; height: 100%; object-fit: contain; pointer-events: none; user-select: none; display: block; }
+.studio .el.sel { outline: 2px solid #2f6fed; }
+.studio .el .handle { position: absolute; width: 12px; height: 12px; background: #fff; border: 2px solid #2f6fed; border-radius: 2px; }
+.studio .handle.nw { left: -7px; top: -7px; cursor: nwse-resize; } .studio .handle.se { right: -7px; bottom: -7px; cursor: nwse-resize; }
+.studio .handle.ne { right: -7px; top: -7px; cursor: nesw-resize; } .studio .handle.sw { left: -7px; bottom: -7px; cursor: nesw-resize; }
+.studio .editor { display: grid; grid-template-columns: 1fr 280px; gap: 20px; margin-top: 12px; align-items: start; }
+@media (max-width: 860px) { .studio .editor { grid-template-columns: 1fr; } }
+.studio .canvas-col { display: flex; flex-direction: column; align-items: center; background: #ececec; padding: 16px; border-radius: 8px; overflow: auto; }
+.studio aside h3 { margin: 4px 0 8px; font-size: 13px; text-transform: uppercase; color: #777; }
+.studio .layers { list-style: none; margin: 0 0 16px; padding: 0; }
+.studio .layers li { display: flex; gap: 6px; align-items: center; padding: 4px; border-radius: 6px; cursor: pointer; }
+.studio .layers li.on { background: rgba(47, 111, 237, 0.14); }
+.studio .layers img, .studio .layers .ph { width: 32px; height: 32px; object-fit: cover; border-radius: 4px; flex: none; }
+.studio .layers .name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+.studio .layers button { padding: 1px 6px; }
+.studio .mini { display: flex; flex-wrap: wrap; gap: 6px; }
+.studio .mini button { padding: 0; width: 56px; height: 56px; overflow: hidden; }
+.studio .mini img { width: 100%; height: 100%; object-fit: cover; }
+.studio .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 14px; margin-top: 12px; }
+.studio .card { border: 1px solid #ddd; border-radius: 10px; padding: 12px; background: #fff; color: #222; }
+.studio .card .title { font-weight: 600; margin-bottom: 4px; }
+.studio .card .actions { justify-content: flex-start; margin: 10px 0 0; }
+.studio .progress { display: flex; gap: 6px; list-style: none; padding: 0; margin: 16px 0; flex-wrap: wrap; }
+.studio .progress li { padding: 4px 12px; border-radius: 14px; background: #e4e4e4; color: #777; font-size: 12px; }
+.studio .progress li.done { background: #c8f0c8; color: #174d17; }
+.studio .progress li.now { background: #2f6fed; color: #fff; }
+.studio .final { max-width: 420px; max-height: 420px; box-shadow: 0 4px 18px rgba(0, 0, 0, 0.18); }
+@media (prefers-color-scheme: dark) {
+  .studio header { border-color: #333; }
+  .studio .canvas-col { background: #262626; }
+  .studio .card { background: #222; color: #e6e6e6; border-color: #333; }
+  .studio .tile, .studio .ph { background: #333; }
+  .studio .cap { background: #222; color: #ddd; }
+  .studio .progress li { background: #333; color: #aaa; }
+  .studio .progress li.done { background: #1d4d1d; color: #cfc; }
+}
