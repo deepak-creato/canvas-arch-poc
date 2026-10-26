@@ -51,4 +51,4 @@ NestJS API, PostgreSQL, Redis, Sharp and FFmpeg workers, Docker Compose. Pin eve
 
 ## Status
 
-POC-001 (compose stack, stub services), POC-002 (S3 buckets) and POC-003 (queues, DLQs, S3 to EventBridge to SQS on the `staging/` prefix) done. Check with `make verify`. Always pass an explicit `--endpoint-url` to `aws` in the LocalStack container. Next ticket: POC-004 (migrations).
+POC-001 (compose stack, stub services), POC-002 (S3 buckets) and POC-003 (queues, DLQs, S3 to EventBridge to SQS on the `staging/` prefix) done. Check with `make verify`. Always pass an explicit `--endpoint-url` to `aws` in the LocalStack container. POC-004 (SQL migrations in `db/migrations/`, run by the `migrate` service; forward-only, never edit an applied file) done. Next ticket: POC-005 (bootstrap/teardown, health checks, Step Functions smoke test).

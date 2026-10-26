@@ -42,9 +42,15 @@ Created on LocalStack start by `infra/localstack/init/02-queues-events.sh` (idem
 - Uploads go under `staging/` in `media-ingest-poc`. S3 sends object events to the default EventBridge bus, and rule `ingest-staging-created` routes only the `staging/` prefix to `light-processing`.
 - Check with `make verify-events` (routing, payload, prefix filter, redrive config, retry then DLQ). `make verify` runs S3 and event checks.
 
+## Database migrations (POC-004)
+
+Plain SQL files in `db/migrations/` are applied in name order by the one-shot `migrate` service on every `make up` (also `make migrate`). Forward-only: to change the schema add a new numbered file; editing an applied file makes the runner fail with a checksum error. `make reset` gives a clean database. `make psql` opens a shell, and `make verify-schema` checks the constraints (dedup, one publication per draft, immutable revisions, single-holder references, job idempotency).
+
+Tables: `media_asset`, `media_rendition`, `canvas_draft`, `canvas_revision`, `media_reference`, `processing_job`, `publication`, `publication_asset`, `ai_generation`, `outbox_event`, plus `schema_migrations`.
+
 ## Current state
 
-POC-001 to 003: all services start, buckets and queues exist. Services start and report healthy. Canvas API and workers are stubs (`services/_stub`) that only answer `/healthz`.
+POC-001 to 004: all services start, buckets, queues and the database schema exist. Services start and report healthy. Canvas API and workers are stubs (`services/_stub`) that only answer `/healthz`.
 
 ## Notes
 

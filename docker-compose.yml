@@ -27,6 +27,7 @@ x-app: &app
     localstack: { condition: service_healthy }
     postgres: { condition: service_healthy }
     redis: { condition: service_healthy }
+    migrate: { condition: service_completed_successfully }
 
 x-health: &health
   interval: 5s
@@ -89,6 +90,19 @@ services:
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       <<: *health
+
+  migrate:
+    image: postgres:16.4-alpine
+    restart: "no"
+    entrypoint: ["sh", "/migrate.sh"]
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgres://canvas:canvas@postgres:5432/canvas}
+    volumes:
+      - ./db/migrations:/migrations:ro
+      - ./infra/db/migrate.sh:/migrate.sh:ro
+    networks: [canvas-net]
+    depends_on:
+      postgres: { condition: service_healthy }
 
   canvas-api:
     <<: *app

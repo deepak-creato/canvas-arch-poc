@@ -1,4 +1,4 @@
-.PHONY: up down reset logs ps verify-s3 verify-events verify
+.PHONY: up down reset logs ps verify-s3 verify-events verify verify-schema migrate psql
 
 up:
 	@test -f .env || cp .env.example .env
@@ -22,4 +22,13 @@ verify-s3:
 verify-events:
 	@./infra/scripts/verify-events.sh
 
-verify: verify-s3 verify-events
+verify: verify-s3 verify-events verify-schema
+
+migrate:
+	docker compose run --rm migrate
+
+psql:
+	docker compose exec postgres psql -U canvas -d canvas
+
+verify-schema:
+	@./infra/scripts/verify-schema.sh
