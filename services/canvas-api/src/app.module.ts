@@ -6,6 +6,8 @@ import { createPresignS3, createS3 } from '../../shared/s3';
 import { HealthController } from './health.controller';
 import { AiController } from './ai/ai.controller';
 import { AiService } from './ai/ai.service';
+import { PublicationsController } from './publish/publications.controller';
+import { PublicationsService } from './publish/publications.service';
 import { PublishOrchestrator } from './publish/orchestrator';
 import { PublishSteps } from './publish/steps';
 import { StepRunner } from './publish/step-runner';
@@ -19,7 +21,7 @@ import { UploadsController } from './uploads/uploads.controller';
 import { UploadsService } from './uploads/uploads.service';
 
 @Module({
-  controllers: [HealthController, UploadsController, AssetsController, DraftsController, AiController],
+  controllers: [HealthController, UploadsController, AssetsController, DraftsController, AiController, PublicationsController],
   providers: [
     UploadsService,
     CompleteService,
@@ -29,6 +31,7 @@ import { UploadsService } from './uploads/uploads.service';
     PublishSteps,
     StepRunner,
     PublishOrchestrator,
+    PublicationsService,
     { provide: PG_POOL, useFactory: createPool },
     { provide: PRESIGN_S3, useFactory: createPresignS3 },
     { provide: S3, useFactory: createS3 },
