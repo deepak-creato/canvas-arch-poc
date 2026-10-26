@@ -28,4 +28,4 @@ Exit demo: edit the same draft 20 times, no new `processing_job` rows; restore a
 5. **POC-018** `shared/refs.ts` recalculation, called from the save transaction.
 6. **POC-019** Revision restore, draft discard and restore. M3 exit test (20 edits, restore, no jobs).
 
-Each ticket: own branch, one commit, tests in `services/canvas-api/test/drafts.spec.ts` (integration against the running stack, like M2). Update CLAUDE.md status and add `verify-m3` demo script after POC-019.
+Each ticket: own branch, one commit, tests in `services/canvas-api/test/drafts.spec.ts` (integration against the running stack, like M2). The M3 exit demo is a test in `drafts.spec.ts` (run by `make test`); no separate verify script. CLAUDE.md status updated after POC-019.

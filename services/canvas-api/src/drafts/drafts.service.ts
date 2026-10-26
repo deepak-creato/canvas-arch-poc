@@ -118,6 +118,69 @@ export class DraftsService {
     });
   }
 
+  /**
+   * Copies an old revision into a new head revision (the old one is never touched).
+   * The new revision re-references the same assets through the normal path; no upload
+   * or processing happens. Restoring content equal to the head is a no-op.
+   */
+  async restoreRevision(ownerId: string, draftId: string, revisionNo: number) {
+    return this.inTx(async (client) => {
+      const draft = await this.lockOwned(client, ownerId, draftId);
+      assertEditable(draft);
+      const old = (await client.query<RevisionRow>(`SELECT * FROM canvas_revision WHERE draft_id = $1 AND revision_no = $2`, [draft.id, revisionNo])).rows[0];
+      if (!old) throw new NotFoundException({ code: 'REVISION_NOT_FOUND', message: `revision ${revisionNo} not found` });
+      const head = (await client.query<RevisionRow>(`SELECT * FROM canvas_revision WHERE draft_id = $1 AND revision_no = $2`, [draft.id, draft.head_revision_no])).rows[0];
+      if (head.content_hash === old.content_hash) return { ...draftView(draft), unchanged: true, revision: revisionView(head) };
+
+      const rev = await this.appendRevision(client, draft, old.document, old.content_hash, 'RESTORE', old.revision_no);
+      await this.attachReferences(client, ownerId, rev);
+      log('info', 'revision restored', { draft_id: draft.id, revision_no: rev.revision_no, restored_from: old.revision_no, owner_id: ownerId });
+      return { ...draftView({ ...draft, head_revision_no: rev.revision_no }), unchanged: false, revision: revisionView(rev) };
+    });
+  }
+
+  /**
+   * Soft-discard. References stay, so the media is retained until the draft is purged (M6).
+   * Repeating the call on a discarded draft returns it unchanged.
+   */
+  async discard(ownerId: string, draftId: string) {
+    return this.inTx(async (client) => {
+      const draft = await this.lockOwned(client, ownerId, draftId);
+      if (draft.status === 'DISCARDED') return draftView(draft);
+      if (draft.status !== 'ACTIVE') {
+        throw new ConflictException({ code: draft.status === 'PURGED' ? 'DRAFT_PURGED' : 'DRAFT_FROZEN', message: `draft is ${draft.status}` });
+      }
+      const row = (
+        await client.query<DraftRow>(
+          `UPDATE canvas_draft SET status = 'DISCARDED', discarded_at = now(), purge_after = now() + make_interval(days => $2)
+            WHERE id = $1 RETURNING *`,
+          [draft.id, config.draftPurgeGraceDays],
+        )
+      ).rows[0];
+      log('info', 'draft discarded', { draft_id: draft.id, owner_id: ownerId });
+      return draftView(row);
+    });
+  }
+
+  /** Brings a DISCARDED draft back to ACTIVE. A PURGED draft is gone for good. */
+  async restore(ownerId: string, draftId: string) {
+    return this.inTx(async (client) => {
+      const draft = await this.lockOwned(client, ownerId, draftId);
+      if (draft.status === 'ACTIVE') return draftView(draft);
+      if (draft.status === 'PURGED') throw new ConflictException({ code: 'DRAFT_PURGED', message: 'draft was purged' });
+      if (draft.status !== 'DISCARDED') throw new ConflictException({ code: 'DRAFT_FROZEN', message: `draft is ${draft.status}` });
+      const row = (
+        await client.query<DraftRow>(
+          `UPDATE canvas_draft SET status = 'ACTIVE', discarded_at = NULL, purge_after = NULL, last_activity_at = now()
+            WHERE id = $1 RETURNING *`,
+          [draft.id],
+        )
+      ).rows[0];
+      log('info', 'draft restored', { draft_id: draft.id, owner_id: ownerId });
+      return draftView(row);
+    });
+  }
+
   /** Revision list without documents, newest first. */
   async revisions(ownerId: string, draftId: string) {
     const draft = await this.findOwned(ownerId, draftId);

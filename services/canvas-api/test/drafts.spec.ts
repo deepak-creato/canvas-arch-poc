@@ -81,7 +81,8 @@ describe('drafts: create, read, list (POC-014)', () => {
   });
 });
 
-const jobCount = () => Number(sql('SELECT count(*) FROM processing_job'));
+// Scoped to the owner's assets: other suites create jobs in parallel.
+const jobCount = (o: string) => Number(sql(`SELECT count(*) FROM processing_job j JOIN media_asset a ON a.id = j.asset_id WHERE a.owner_id = '${o}'`));
 
 describe('drafts: immutable revisions (POC-015)', () => {
   it('increments the revision on change and skips an unchanged document', async () => {
@@ -105,11 +106,11 @@ describe('drafts: immutable revisions (POC-015)', () => {
   it('keeps old revisions unchanged and starts no media jobs', async () => {
     const o = owner();
     const d = await json(await call(o, 'POST', '/v1/drafts', {}));
-    const before = jobCount();
+    const before = jobCount(o);
     for (let i = 0; i < 5; i++) {
       await call(o, 'PUT', `/v1/drafts/${d.draft_id}`, { base_revision: i + 1, document: { elements: [{ id: 'a', x: i }] } });
     }
-    expect(jobCount()).toBe(before);
+    expect(jobCount(o)).toBe(before);
     const got = await json(await call(o, 'GET', `/v1/drafts/${d.draft_id}`));
     expect(got).toMatchObject({ head_revision: 6, revision: { document: { elements: [{ id: 'a', x: 4 }] } } });
   });
@@ -271,5 +272,89 @@ describe('drafts: ref_count and retention (POC-018)', () => {
     } finally {
       await pool.end();
     }
+  });
+});
+
+describe('drafts: restore and discard (POC-019)', () => {
+  it('M3 exit demo: 20 edits start no jobs; restoring an old revision keeps its media', async () => {
+    const o = owner();
+    const a = await validatedAsset(o);
+    const d = await json(await call(o, 'POST', '/v1/drafts', { document: { elements: [{ asset_id: a }] } }));
+    const id = d.draft_id;
+    const jobsBefore = jobCount(o);
+    const rendBefore = sql(`SELECT count(*) FROM media_rendition WHERE asset_id = '${a}'`);
+
+    // 21 saves; the asset stays in revision 1, then leaves the canvas at revision 2.
+    await call(o, 'PUT', `/v1/drafts/${id}`, { base_revision: 1, document: { elements: [] } });
+    for (let i = 2; i <= 20; i++) {
+      const res = await call(o, 'PUT', `/v1/drafts/${id}`, { base_revision: i, document: { elements: [{ id: 'n', x: i }] } });
+      expect(res.status).toBe(200);
+    }
+    expect(jobCount(o)).toBe(jobsBefore);
+    // Revision 1 still holds the asset.
+    expect(sql(`SELECT ref_count || '|' || retention_status FROM media_asset WHERE id = '${a}'`)).toBe('1|REFERENCED');
+
+    const restored = await json(await call(o, 'POST', `/v1/drafts/${id}/revisions/1/restore`));
+    expect(restored).toMatchObject({ unchanged: false, head_revision: 22, revision: { revision_no: 22, source: 'RESTORE', restored_from_revision: 1, document: { elements: [{ asset_id: a }] } } });
+    expect(sql(`SELECT ref_count || '|' || retention_status FROM media_asset WHERE id = '${a}'`)).toBe('2|REFERENCED');
+
+    // History intact, revision 1 unchanged, nothing reprocessed.
+    const list = await json(await call(o, 'GET', `/v1/drafts/${id}/revisions`));
+    expect(list.revisions).toHaveLength(22);
+    expect(jobCount(o)).toBe(jobsBefore);
+    expect(sql(`SELECT count(*) FROM media_rendition WHERE asset_id = '${a}'`)).toBe(rendBefore);
+    const ready = await json(await call(o, 'GET', `/v1/assets/${a}`));
+    expect(ready.processing_status).toBe('READY');
+
+    // Restoring content equal to the head is a no-op; unknown revision is 404.
+    expect(await json(await call(o, 'POST', `/v1/drafts/${id}/revisions/22/restore`))).toMatchObject({ unchanged: true, head_revision: 22 });
+    expect((await call(o, 'POST', `/v1/drafts/${id}/revisions/99/restore`)).status).toBe(404);
+  });
+
+  it('soft-discards, hides from the default list, keeps media, and restores', async () => {
+    const o = owner();
+    const a = await validatedAsset(o);
+    const d = await json(await call(o, 'POST', '/v1/drafts', { document: { elements: [{ asset_id: a }] } }));
+    const id = d.draft_id;
+
+    const res = await call(o, 'DELETE', `/v1/drafts/${id}`);
+    expect(res.status).toBe(200);
+    expect(await json(res)).toMatchObject({ status: 'DISCARDED' });
+    const gone = await json(await call(o, 'GET', `/v1/drafts/${id}`));
+    expect(gone.purge_after).not.toBeNull();
+    expect(gone.discarded_at).not.toBeNull();
+
+    expect((await json(await call(o, 'GET', '/v1/drafts'))).drafts).toHaveLength(0);
+    expect((await json(await call(o, 'GET', '/v1/drafts?status=DISCARDED'))).drafts).toHaveLength(1);
+    expect(sql(`SELECT ref_count || '|' || retention_status FROM media_asset WHERE id = '${a}'`)).toBe('1|REFERENCED');
+
+    // Edits and revision restores are rejected while discarded; discarding again is harmless.
+    const put = await call(o, 'PUT', `/v1/drafts/${id}`, { base_revision: 1, document: { x: 1 } });
+    expect([put.status, (await json(put)).code]).toEqual([409, 'DRAFT_DISCARDED']);
+    expect((await call(o, 'POST', `/v1/drafts/${id}/revisions/1/restore`)).status).toBe(409);
+    expect((await call(o, 'DELETE', `/v1/drafts/${id}`)).status).toBe(200);
+
+    const back = await json(await call(o, 'POST', `/v1/drafts/${id}/restore`));
+    expect(back).toMatchObject({ status: 'ACTIVE', discarded_at: null, purge_after: null });
+    expect((await call(o, 'PUT', `/v1/drafts/${id}`, { base_revision: 1, document: { x: 1 } })).status).toBe(200);
+  });
+
+  it('rejects edits on frozen drafts and restore of a purged draft; other owners get 404', async () => {
+    const o = owner();
+    const d = await json(await call(o, 'POST', '/v1/drafts', {}));
+    const id = d.draft_id;
+    for (const status of ['PUBLISHING', 'PUBLISHED']) {
+      sql(`UPDATE canvas_draft SET status = '${status}' WHERE id = '${id}'`);
+      const put = await call(o, 'PUT', `/v1/drafts/${id}`, { base_revision: 1, document: { x: 1 } });
+      expect([put.status, (await json(put)).code]).toEqual([409, 'DRAFT_FROZEN']);
+      expect((await call(o, 'DELETE', `/v1/drafts/${id}`)).status).toBe(409);
+      expect((await call(o, 'POST', `/v1/drafts/${id}/revisions/1/restore`)).status).toBe(409);
+    }
+    sql(`UPDATE canvas_draft SET status = 'PURGED' WHERE id = '${id}'`);
+    const res = await call(o, 'POST', `/v1/drafts/${id}/restore`);
+    expect([res.status, (await json(res)).code]).toEqual([409, 'DRAFT_PURGED']);
+
+    expect((await call(owner(), 'DELETE', `/v1/drafts/${id}`)).status).toBe(404);
+    expect((await call(owner(), 'POST', `/v1/drafts/${id}/restore`)).status).toBe(404);
   });
 });

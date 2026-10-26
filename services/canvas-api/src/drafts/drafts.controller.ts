@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Headers, HttpCode, Param, ParseUUIDPipe, Post, Put, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Headers, HttpCode, Param, ParseIntPipe, ParseUUIDPipe, Post, Put, Query } from '@nestjs/common';
 import { CreateDraftDto } from './create-draft.dto';
 import { SaveDraftDto } from './save-draft.dto';
 import { DraftsService } from './drafts.service';
@@ -36,5 +36,26 @@ export class DraftsController {
   @Get(':draftId/revisions')
   revisions(@Headers('x-owner-id') ownerId: string | undefined, @Param('draftId', new ParseUUIDPipe()) draftId: string) {
     return this.drafts.revisions(requireOwner(ownerId), draftId);
+  }
+
+  @Post(':draftId/revisions/:rev/restore')
+  @HttpCode(200)
+  restoreRevision(
+    @Headers('x-owner-id') ownerId: string | undefined,
+    @Param('draftId', new ParseUUIDPipe()) draftId: string,
+    @Param('rev', ParseIntPipe) rev: number,
+  ) {
+    return this.drafts.restoreRevision(requireOwner(ownerId), draftId, rev);
+  }
+
+  @Delete(':draftId')
+  discard(@Headers('x-owner-id') ownerId: string | undefined, @Param('draftId', new ParseUUIDPipe()) draftId: string) {
+    return this.drafts.discard(requireOwner(ownerId), draftId);
+  }
+
+  @Post(':draftId/restore')
+  @HttpCode(200)
+  restore(@Headers('x-owner-id') ownerId: string | undefined, @Param('draftId', new ParseUUIDPipe()) draftId: string) {
+    return this.drafts.restore(requireOwner(ownerId), draftId);
   }
 }
