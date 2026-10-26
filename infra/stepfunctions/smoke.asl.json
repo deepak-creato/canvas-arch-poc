@@ -1,0 +1,27 @@
+{
+  "Comment": "POC-005 compatibility smoke test: Wait, Parallel fan-out, SQS task-token callback, Catch.",
+  "StartAt": "Pause",
+  "States": {
+    "Pause": { "Type": "Wait", "Seconds": 1, "Next": "FanOut" },
+    "FanOut": {
+      "Type": "Parallel",
+      "Branches": [
+        { "StartAt": "BranchA", "States": { "BranchA": { "Type": "Pass", "End": true } } },
+        { "StartAt": "BranchB", "States": { "BranchB": { "Type": "Pass", "End": true } } }
+      ],
+      "Next": "AwaitCallback"
+    },
+    "AwaitCallback": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::sqs:sendMessage.waitForTaskToken",
+      "Parameters": {
+        "QueueUrl": "__QUEUE_URL__",
+        "MessageBody": { "token.$": "$$.Task.Token" }
+      },
+      "TimeoutSeconds": 30,
+      "Catch": [ { "ErrorEquals": ["States.ALL"], "Next": "Caught" } ],
+      "End": true
+    },
+    "Caught": { "Type": "Pass", "End": true }
+  }
+}

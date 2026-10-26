@@ -1,4 +1,23 @@
-.PHONY: up down reset logs ps verify-s3 verify-events verify verify-schema migrate psql
+.PHONY: bootstrap teardown preflight health smoke-sfn up down reset logs ps verify-s3 verify-events verify verify-schema migrate psql
+
+# One command from a fresh clone to a verified stack (M1 exit demo)
+bootstrap:
+	@test -f .env || cp .env.example .env
+	@./infra/scripts/preflight.sh
+	docker compose up -d --build --wait
+	@./infra/scripts/health.sh
+	@$(MAKE) --no-print-directory verify
+	@echo
+	@echo "Stack ready: API http://localhost:3000  LocalStack http://localhost:4566  Postgres 127.0.0.1:5433  Redis 127.0.0.1:6380"
+
+preflight:
+	@./infra/scripts/preflight.sh
+
+health:
+	@./infra/scripts/health.sh
+
+smoke-sfn:
+	@./infra/scripts/smoke-sfn.sh
 
 up:
 	@test -f .env || cp .env.example .env
@@ -7,8 +26,10 @@ up:
 down:
 	docker compose down
 
-reset:
-	docker compose down -v
+reset: teardown
+
+teardown:
+	docker compose down -v --remove-orphans
 
 logs:
 	docker compose logs -f --tail=100
@@ -22,7 +43,7 @@ verify-s3:
 verify-events:
 	@./infra/scripts/verify-events.sh
 
-verify: verify-s3 verify-events verify-schema
+verify: verify-s3 verify-events verify-schema smoke-sfn
 
 migrate:
 	docker compose run --rm migrate

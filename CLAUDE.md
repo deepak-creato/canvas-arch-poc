@@ -34,11 +34,13 @@ NestJS API, PostgreSQL, Redis, Sharp and FFmpeg workers, Docker Compose. Pin eve
 - Do not commit secrets, including `LOCALSTACK_AUTH_TOKEN`. Keep `.env` out of version control and maintain `.env.example`.
 - Test data must be redistributable.
 
-## Common commands (available after POC-001)
+## Common commands
 
+- `make bootstrap` — preflight, start, health, all verification (fresh-clone flow)
+- `make teardown` — remove containers, volumes, network
+- `make verify` / `make health` / `make preflight`
 - `make up` — start the stack and wait for health
 - `make down` — stop the stack
-- `make reset` — stop and delete volumes
 - `make logs`, `make ps`
 
 ## Layout
@@ -51,4 +53,4 @@ NestJS API, PostgreSQL, Redis, Sharp and FFmpeg workers, Docker Compose. Pin eve
 
 ## Status
 
-POC-001 (compose stack, stub services), POC-002 (S3 buckets) and POC-003 (queues, DLQs, S3 to EventBridge to SQS on the `staging/` prefix) done. Check with `make verify`. Always pass an explicit `--endpoint-url` to `aws` in the LocalStack container. POC-004 (SQL migrations in `db/migrations/`, run by the `migrate` service; forward-only, never edit an applied file) done. Next ticket: POC-005 (bootstrap/teardown, health checks, Step Functions smoke test).
+POC-001 (compose stack, stub services), POC-002 (S3 buckets) and POC-003 (queues, DLQs, S3 to EventBridge to SQS on the `staging/` prefix) done. Check with `make verify`. Always pass an explicit `--endpoint-url` to `aws` in the LocalStack container. POC-004 (SQL migrations in `db/migrations/`, run by the `migrate` service; forward-only, never edit an applied file) done. POC-005 (`make bootstrap`/`teardown`/`preflight`/`health`/`smoke-sfn`) done: M1 complete. Step Functions task-token callbacks work on LocalStack 2026.10.2. Next ticket: POC-006 (`POST /v1/uploads`, M2).
