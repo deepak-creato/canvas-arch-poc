@@ -1,11 +1,13 @@
-import { GetObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
+import { GetObjectCommand, HeadObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
-import { BadRequestException, ConflictException, Inject, Injectable, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Inject, Injectable, NotFoundException, ServiceUnavailableException, UnprocessableEntityException } from '@nestjs/common';
+import { SFNClient } from '@aws-sdk/client-sfn';
 import { Pool, PoolClient } from 'pg';
 import { config } from '../../../shared/config';
 import { log } from '../../../shared/log';
-import { PG_POOL, PRESIGN_S3 } from '../tokens';
-import { CANVAS_TYPES, CanvasUploadDto } from './canvas-upload.dto';
+import { answerTask } from '../../../shared/sfn';
+import { PG_POOL, PRESIGN_S3, S3, SFN } from '../tokens';
+import { CANVAS_TYPES, CanvasUploadDto, CanvasUploadedDto } from './canvas-upload.dto';
 import { CreatePublicationDto } from './create-publication.dto';
 import { PublishOrchestrator } from './orchestrator';
 
@@ -39,6 +41,8 @@ export class PublicationsService {
   constructor(
     @Inject(PG_POOL) private readonly pool: Pool,
     @Inject(PRESIGN_S3) private readonly s3: S3Client,
+    @Inject(S3) private readonly s3Internal: S3Client,
+    @Inject(SFN) private readonly sfn: SFNClient,
     private readonly orchestrator: PublishOrchestrator,
   ) {}
 
@@ -148,6 +152,67 @@ export class PublicationsService {
     };
   }
 
+  /**
+   * The client says its rendered canvas is uploaded. The object is checked (exists, not empty, content type
+   * and file signature), recorded, and the AwaitCanvas task token is taken and answered, which resumes the
+   * workflow. Safe to repeat: once the token is taken, further calls return the current state.
+   */
+  async canvasUploaded(ownerId: string, publicationId: string, dto: CanvasUploadedDto) {
+    const p = await this.findOwned(ownerId, publicationId);
+    if (p.status === 'FINALIZING' || p.status === 'LIVE') return this.view(p);
+    if (p.status !== 'AWAITING_CANVAS') {
+      throw new ConflictException({ code: 'PUBLICATION_STATE', message: `publication is ${p.status}; canvas-uploaded is accepted only in AWAITING_CANVAS`, status: p.status });
+    }
+    const key = canvasKey(p.id, dto.content_type);
+    const ctx = { publication_id: p.id, draft_id: p.draft_id };
+    const unprocessable = (code: string, message: string) => new UnprocessableEntityException({ code, message });
+
+    let head;
+    try {
+      head = await this.s3Internal.send(new HeadObjectCommand({ Bucket: config.bucketPublished, Key: key }));
+    } catch (e: any) {
+      if (e?.name === 'NotFound' || e?.$metadata?.httpStatusCode === 404) throw unprocessable('CANVAS_NOT_FOUND', `no canvas object at ${key}; upload it first`);
+      throw e;
+    }
+    if (!head.ContentLength) throw unprocessable('CANVAS_EMPTY', 'canvas object is empty');
+    if (head.ContentType !== dto.content_type) {
+      throw unprocessable('CANVAS_CONTENT_TYPE_MISMATCH', `canvas object has content type ${head.ContentType}, expected ${dto.content_type}`);
+    }
+    const first = await this.s3Internal.send(new GetObjectCommand({ Bucket: config.bucketPublished, Key: key, Range: 'bytes=0-11' }));
+    if (!hasSignature(Buffer.from(await first.Body!.transformToByteArray()), dto.content_type)) {
+      throw unprocessable('CANVAS_INVALID', `canvas object is not a valid ${dto.content_type} file`);
+    }
+
+    // Take the token and record the object in one statement; only one caller gets the token.
+    const taken = (
+      await this.pool.query<{ task_token: string | null }>(
+        `WITH old AS (SELECT id, task_token FROM publication WHERE id = $1 AND status = 'AWAITING_CANVAS' AND task_token IS NOT NULL FOR UPDATE),
+              upd AS (UPDATE publication p
+                         SET task_token = NULL, render_bucket = $2, render_key = $3, canvas_content_type = $4, canvas_bytes = $5
+                        FROM old WHERE p.id = old.id RETURNING old.task_token)
+         SELECT task_token FROM upd`,
+        [p.id, config.bucketPublished, key, dto.content_type, head.ContentLength],
+      )
+    ).rows[0]?.task_token;
+    if (!taken) return this.view(await this.findOwned(ownerId, publicationId));
+
+    let answered: boolean;
+    try {
+      answered = await answerTask(this.sfn, taken, { ok: true, output: { render_key: key, bytes: head.ContentLength, etag: head.ETag ?? null } }, ctx);
+    } catch (e) {
+      // Step Functions unreachable: give the token back so the client can repeat the call.
+      await this.pool.query(`UPDATE publication SET task_token = $2 WHERE id = $1 AND task_token IS NULL`, [p.id, taken]);
+      log('error', 'could not resume publish workflow', { ...ctx, error: String(e) });
+      throw new ServiceUnavailableException({ code: 'WORKFLOW_UNAVAILABLE', message: 'could not resume the workflow; repeat the request' });
+    }
+    if (!answered) {
+      // The wait timed out meanwhile; the workflow is marking the publication FAILED.
+      throw new ConflictException({ code: 'CANVAS_TOO_LATE', message: 'the canvas wait already timed out; retry the publication' });
+    }
+    log('info', 'canvas upload confirmed', { ...ctx, bytes: head.ContentLength });
+    return this.view(await this.findOwned(ownerId, publicationId));
+  }
+
   async findOwned(ownerId: string, publicationId: string, db: Pick<PoolClient, 'query'> = this.pool): Promise<PublicationRow> {
     const p = (await db.query<PublicationRow>(`SELECT * FROM publication WHERE id = $1 AND owner_id = $2`, [publicationId, ownerId])).rows[0];
     // Another owner's publication looks the same as a missing one.
@@ -210,4 +275,10 @@ export class PublicationsService {
       client.release();
     }
   }
+}
+
+/** PNG signature, or the MP4 `ftyp` box at byte 4. */
+function hasSignature(head: Buffer, contentType: string): boolean {
+  if (contentType === 'image/png') return head.length >= 8 && head.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
+  return head.length >= 8 && head.subarray(4, 8).toString('latin1') === 'ftyp';
 }

@@ -1,6 +1,6 @@
 import { Body, Controller, Get, Headers, HttpCode, Param, ParseUUIDPipe, Post, Res } from '@nestjs/common';
 import { requireOwner } from '../drafts/owner';
-import { CanvasUploadDto } from './canvas-upload.dto';
+import { CanvasUploadDto, CanvasUploadedDto } from './canvas-upload.dto';
 import { CreatePublicationDto } from './create-publication.dto';
 import { PublicationsService } from './publications.service';
 
@@ -31,6 +31,16 @@ export class PublicationsController {
     @Body() dto: CanvasUploadDto,
   ) {
     return this.publications.canvasUploadUrl(requireOwner(ownerId), publicationId, dto);
+  }
+
+  @Post('publications/:publicationId/canvas-uploaded')
+  @HttpCode(202)
+  canvasUploaded(
+    @Headers('x-owner-id') ownerId: string | undefined,
+    @Param('publicationId', new ParseUUIDPipe()) publicationId: string,
+    @Body() dto: CanvasUploadedDto,
+  ) {
+    return this.publications.canvasUploaded(requireOwner(ownerId), publicationId, dto);
   }
 
   @Get('publications/:publicationId')

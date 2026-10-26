@@ -10,3 +10,8 @@ export class CanvasUploadDto {
   @Min(1)
   size_bytes!: number;
 }
+
+export class CanvasUploadedDto {
+  @IsIn(Object.keys(CANVAS_TYPES))
+  content_type!: string;
+}

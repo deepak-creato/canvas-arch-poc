@@ -1,4 +1,4 @@
-import { HeadObjectCommand, S3Client } from '@aws-sdk/client-s3';
+import { HeadObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { Inject, Injectable } from '@nestjs/common';
 import { Pool } from 'pg';
 import { config } from '../../../shared/config';
@@ -53,6 +53,8 @@ export class PublishSteps {
         return this.markFinalsReady(msg);
       case 'AWAIT_CANVAS':
         return this.awaitCanvas(msg);
+      case 'WRITE_MANIFEST':
+        return this.writeManifest(msg);
       case 'FAIL_PUBLICATION':
         return this.failPublication(msg);
       default:
@@ -177,6 +179,68 @@ export class PublishSteps {
       log('info', 'waiting for canvas upload', { publication_id: p.id, draft_id: p.draft_id });
     }
     return HOLD;
+  }
+
+  /**
+   * FINALIZING. Writes publications/{id}/manifest.json: the frozen revision, the client's canvas object and
+   * the final rendition map. Everything in it comes from the database and the pinned revision, so a retry
+   * writes an equal object.
+   */
+  private async writeManifest(msg: StepMessage) {
+    const p = await this.loadActive(msg);
+    await transition(this.pool, p.id, 'FINALIZING', msg.step);
+
+    const row = (
+      await this.pool.query<{ render_bucket: string | null; render_key: string | null; canvas_content_type: string | null; created_at: Date }>(
+        `SELECT render_bucket, render_key, canvas_content_type, created_at FROM publication WHERE id = $1`,
+        [p.id],
+      )
+    ).rows[0];
+    if (!row.render_key || !row.render_bucket) throw new StepError('CANVAS_MISSING', 'no canvas upload is recorded for this publication');
+    let head;
+    try {
+      head = await this.s3.send(new HeadObjectCommand({ Bucket: row.render_bucket, Key: row.render_key }));
+    } catch {
+      throw new StepError('CANVAS_MISSING', `canvas object ${row.render_key} is missing`);
+    }
+
+    const assetIds = extractAssetIds(p.document);
+    const assets = (
+      await this.pool.query<{ id: string; kind: string; content_type: string; size_bytes: string | null; server_sha256: string | null; original_bucket: string; original_key: string }>(
+        `SELECT id, kind, content_type, size_bytes, server_sha256, original_bucket, original_key FROM media_asset WHERE id = ANY($1::uuid[]) ORDER BY id`,
+        [assetIds],
+      )
+    ).rows;
+    const finals = (
+      await this.pool.query<{ id: string; asset_id: string; bucket: string; s3_key: string }>(
+        `SELECT id, asset_id, bucket, s3_key FROM media_rendition
+          WHERE asset_id = ANY($1::uuid[]) AND tier = 'FINAL' AND status = 'READY' ORDER BY asset_id`,
+        [assetIds],
+      )
+    ).rows;
+    const videos = assets.filter((a) => a.kind === 'VIDEO').length;
+    if (finals.length !== videos) throw new StepError('FINAL_NOT_READY', `expected ${videos} final video(s), found ${finals.length} READY`);
+
+    const manifest = {
+      manifest_version: 1,
+      publication_id: p.id,
+      draft_id: p.draft_id,
+      owner_id: p.owner_id,
+      created_at: row.created_at.toISOString(),
+      revision: { revision_no: p.revision_no, content_hash: p.content_hash, document: p.document },
+      render: { bucket: row.render_bucket, key: row.render_key, content_type: row.canvas_content_type, bytes: head.ContentLength ?? null, etag: head.ETag ?? null },
+      assets: assets.map((a) => ({
+        asset_id: a.id,
+        kind: a.kind,
+        original: { bucket: a.original_bucket, key: a.original_key, content_type: a.content_type, size_bytes: a.size_bytes === null ? null : Number(a.size_bytes), sha256: a.server_sha256 },
+      })),
+      finals: Object.fromEntries(finals.map((f) => [f.asset_id, { rendition_id: f.id, bucket: f.bucket, key: f.s3_key }])),
+    };
+    const key = `publications/${p.id}/manifest.json`;
+    await this.s3.send(new PutObjectCommand({ Bucket: config.bucketPublished, Key: key, Body: JSON.stringify(manifest, null, 2), ContentType: 'application/json' }));
+    await this.pool.query(`UPDATE publication SET manifest_key = $2 WHERE id = $1`, [p.id, key]);
+    log('info', 'manifest written', { publication_id: p.id, draft_id: p.draft_id, key });
+    return { manifest_key: key };
   }
 
   /** Terminal failure: record it so the API, the client and the retry endpoint see it. */
