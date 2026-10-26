@@ -15,8 +15,8 @@ import { POSTER, PROXY, SPRITE, spritePlan, videoDeriveKey } from './recipes';
 
 const run = promisify(execFile);
 const FFMPEG_TIMEOUT_MS = 300_000;
-// Proxy encoding can be slow; POC-012 adds lease heartbeats instead of relying on this.
-const LEASE_SECONDS = 600;
+// Renewed by the job heartbeat while FFmpeg runs, so a dead worker is taken over within a minute.
+const LEASE_SECONDS = 60;
 
 const ffmpeg = (args: string[]) => run('ffmpeg', ['-v', 'error', '-y', ...args], { timeout: FFMPEG_TIMEOUT_MS });
 

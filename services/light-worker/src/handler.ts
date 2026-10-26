@@ -7,8 +7,10 @@ import { deriveVideo } from './derive-video';
 import { parseObjectCreated } from './event';
 import { rejectAsset, validateAsset } from './validate';
 
-// ack: delete the message. retry: leave it; SQS redelivers it, then moves it to the DLQ.
-export type Outcome = 'ack' | 'retry';
+// ack: delete the message.
+// retry: leave it; SQS redelivers it after a short backoff.
+// dead: the work failed for good; make it visible at once so SQS counts a receive and moves it to the DLQ.
+export type Outcome = 'ack' | 'retry' | 'dead';
 
 // Failures that retrying cannot fix. Rejecting such assets is POC-009.
 const TERMINAL = new Set(['UPLOAD_EXPIRED', 'UPLOAD_NOT_COMPLETABLE']);
@@ -37,10 +39,17 @@ export async function handleMessage(pool: Pool, s3: S3Client, body: string, mess
   const r = await confirmUpload(pool, s3, asset, messageId);
   if (r.ok) {
     // Both steps are idempotent, so a redelivered message resumes wherever the last attempt stopped.
-    if ((await validateAsset(pool, s3, asset.id, messageId)) === 'busy') return 'retry';
-    // Each derive only acts on its own kind and returns 'done' for the other.
-    if ((await deriveImage(pool, s3, asset.id, messageId)) === 'busy') return 'retry';
-    if ((await deriveVideo(pool, s3, asset.id, messageId)) === 'busy') return 'retry';
+    const steps = [
+      () => validateAsset(pool, s3, asset.id, messageId),
+      // Each derive only acts on its own kind and returns 'done' for the other.
+      () => deriveImage(pool, s3, asset.id, messageId),
+      () => deriveVideo(pool, s3, asset.id, messageId),
+    ];
+    for (const step of steps) {
+      const out = await step();
+      if (out === 'busy') return 'retry';
+      if (out === 'failed') return 'dead';
+    }
     return 'ack';
   }
   if (REJECTING.has(r.code)) {

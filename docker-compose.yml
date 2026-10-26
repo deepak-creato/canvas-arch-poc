@@ -130,6 +130,8 @@ services:
     environment:
       <<: *app-env
       SERVICE_NAME: light-worker
+      # Local POC only: lets tests inject failures through a job's payload (fail_mode).
+      WORKER_TEST_HOOKS: ${WORKER_TEST_HOOKS:-true}
       PORT: "3101"
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3101/healthz"]

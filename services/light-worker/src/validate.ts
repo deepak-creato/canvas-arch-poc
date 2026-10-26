@@ -5,9 +5,10 @@ import { join } from 'path';
 import { Readable } from 'stream';
 import { Pool } from 'pg';
 import { config } from '../../shared/config';
-import { claimJob, failJob, succeedJob } from '../../shared/job-repo';
+import { claimJob, failJob, PermanentError, succeedJob, withHeartbeat } from '../../shared/job-repo';
 import { validateJobKey } from '../../shared/jobs';
 import { log } from '../../shared/log';
+import { injectFailure } from './fail-injection';
 import { CorruptError, probeImage, probeVideo, saveAndHash, sniffType, TooLargeError } from './inspect';
 
 interface Asset {
@@ -21,7 +22,7 @@ interface Asset {
 }
 
 // done: nothing more to do for this message. busy: another worker holds the job, retry later.
-export type ValidateOutcome = 'done' | 'busy';
+export type ValidateOutcome = 'done' | 'busy' | 'failed';
 
 const LEASE_SECONDS = 120;
 const WORKER_ID = `light-worker-${process.pid}`;
@@ -48,12 +49,13 @@ export async function validateAsset(pool: Pool, s3: S3Client, assetId: string, c
   if (!a || a.upload_status !== 'UPLOADED') return 'done'; // already VALIDATED or REJECTED
 
   const claim = await claimJob(pool, validateJobKey(a.id), WORKER_ID, LEASE_SECONDS);
-  if (!claim.claimed) return claim.reason === 'busy' ? 'busy' : 'done';
+  if (!claim.claimed) return claim.reason === 'busy' ? 'busy' : claim.reason === 'failed' ? 'failed' : 'done';
   const ctxJ = { ...ctx, job_id: claim.job.id };
 
   const dir = await mkdtemp(join(tmpdir(), 'validate-'));
   try {
-    const verdict = await inspectAsset(s3, a, join(dir, 'source'));
+    injectFailure(claim.job);
+    const verdict = await withHeartbeat(pool, claim.job.id, WORKER_ID, LEASE_SECONDS, () => inspectAsset(s3, a, join(dir, 'source')));
     if (verdict.ok) {
       await pool.query(
         `UPDATE media_asset
@@ -71,7 +73,7 @@ export async function validateAsset(pool: Pool, s3: S3Client, assetId: string, c
     await succeedJob(pool, claim.job.id);
     return 'done';
   } catch (e) {
-    await failJob(pool, claim.job, String(e));
+    await failJob(pool, claim.job, String(e), e instanceof PermanentError);
     throw e;
   } finally {
     await rm(dir, { recursive: true, force: true });
