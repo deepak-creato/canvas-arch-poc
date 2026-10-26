@@ -100,3 +100,47 @@ describe('drafts: immutable revisions (POC-015)', () => {
     expect((await call(owner(), 'PUT', `/v1/drafts/${d.draft_id}`, { base_revision: 1, document: {} })).status).toBe(404);
   });
 });
+
+describe('drafts: optimistic concurrency (POC-016)', () => {
+  it('returns 409 REVISION_CONFLICT for a stale base_revision and saves nothing', async () => {
+    const o = owner();
+    const d = await json(await call(o, 'POST', '/v1/drafts', {}));
+    const id = d.draft_id;
+    await call(o, 'PUT', `/v1/drafts/${id}`, { base_revision: 1, document: { elements: [{ id: 'a' }] } });
+
+    const stale = await call(o, 'PUT', `/v1/drafts/${id}`, { base_revision: 1, document: { elements: [{ id: 'b' }] } });
+    expect(stale.status).toBe(409);
+    expect(await json(stale)).toMatchObject({ code: 'REVISION_CONFLICT', head_revision: 2 });
+
+    const got = await json(await call(o, 'GET', `/v1/drafts/${id}`));
+    expect(got).toMatchObject({ head_revision: 2, revision: { document: { elements: [{ id: 'a' }] } } });
+  });
+
+  it('rejects a base_revision ahead of the head', async () => {
+    const o = owner();
+    const d = await json(await call(o, 'POST', '/v1/drafts', {}));
+    const res = await call(o, 'PUT', `/v1/drafts/${d.draft_id}`, { base_revision: 5, document: { x: 1 } });
+    expect(res.status).toBe(409);
+  });
+
+  it('checks the base before the unchanged shortcut', async () => {
+    const o = owner();
+    const d = await json(await call(o, 'POST', '/v1/drafts', {}));
+    await call(o, 'PUT', `/v1/drafts/${d.draft_id}`, { base_revision: 1, document: { x: 1 } });
+    // Stale base, content equal to head: still a conflict.
+    const res = await call(o, 'PUT', `/v1/drafts/${d.draft_id}`, { base_revision: 1, document: { x: 1 } });
+    expect(res.status).toBe(409);
+  });
+
+  it('lets exactly one of several parallel saves from the same base win', async () => {
+    const o = owner();
+    const d = await json(await call(o, 'POST', '/v1/drafts', {}));
+    const results = await Promise.all(
+      Array.from({ length: 8 }, (_, i) => call(o, 'PUT', `/v1/drafts/${d.draft_id}`, { base_revision: 1, document: { n: i } })),
+    );
+    const codes = results.map((r) => r.status).sort();
+    expect(codes).toEqual([200, 409, 409, 409, 409, 409, 409, 409]);
+    const list = await json(await call(o, 'GET', `/v1/drafts/${d.draft_id}/revisions`));
+    expect(list.revisions.map((r: any) => r.revision_no)).toEqual([2, 1]);
+  });
+});

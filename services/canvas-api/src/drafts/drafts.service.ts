@@ -104,6 +104,13 @@ export class DraftsService {
     return this.inTx(async (client) => {
       const draft = await this.lockOwned(client, ownerId, draftId);
       assertEditable(draft);
+      if (baseRevision !== draft.head_revision_no) {
+        throw new ConflictException({
+          code: 'REVISION_CONFLICT',
+          message: `base_revision ${baseRevision} is stale; head is ${draft.head_revision_no}`,
+          head_revision: draft.head_revision_no,
+        });
+      }
       const head = (
         await client.query<RevisionRow>(`SELECT * FROM canvas_revision WHERE draft_id = $1 AND revision_no = $2`, [draft.id, draft.head_revision_no])
       ).rows[0];
