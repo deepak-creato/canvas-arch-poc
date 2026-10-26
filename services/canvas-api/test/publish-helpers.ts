@@ -1,9 +1,10 @@
 // Shared helpers for the publish integration tests (M5). Need the running compose stack.
-import { DescribeExecutionCommand, SFNClient } from '@aws-sdk/client-sfn';
+import { DescribeExecutionCommand, SFNClient, StartExecutionCommand } from '@aws-sdk/client-sfn';
 import { execSync } from 'child_process';
-import { createHash, randomBytes } from 'crypto';
+import { createHash, randomBytes, randomUUID } from 'crypto';
 import { readFileSync } from 'fs';
 import { resolve } from 'path';
+import { config } from '../../shared/config';
 import { createSfn } from '../../shared/sfn';
 
 export const API = process.env.API_URL ?? 'http://127.0.0.1:3000';
@@ -78,4 +79,32 @@ export async function uploadCanvas(o: string, id: string, name = 'canvas-render.
   const res = await json(await call(o, 'POST', `/v1/publications/${id}/canvas-upload`, { content_type: ct, size_bytes: bytes.length }));
   const put = await fetch(res.upload_url, { method: 'PUT', headers: res.upload_headers, body: new Uint8Array(bytes) });
   return { put, bytes, res };
+}
+
+/** What POST /v1/drafts/{id}/publications does, minus the API, so a test can choose the timeouts. */
+export async function startPublication(o: string, draftId: string, opts: { failMode?: string; canvasTimeout?: number } = {}) {
+  const rev = sql(`SELECT id FROM canvas_revision WHERE draft_id = '${draftId}' AND revision_no = 1`);
+  const id = randomUUID();
+  sql(
+    `INSERT INTO publication (id, draft_id, revision_id, owner_id, idempotency_key, test_fail_mode)
+     VALUES ('${id}', '${draftId}', '${rev}', '${o}', '${randomUUID()}', ${opts.failMode ? `'${opts.failMode}'` : 'NULL'})`,
+  );
+  sql(`INSERT INTO publication_transition (publication_id, to_status, step) VALUES ('${id}', 'REQUESTED', 'PUBLISH_REQUEST')`);
+  sql(`UPDATE canvas_draft SET status = 'PUBLISHING' WHERE id = '${draftId}'`);
+  const out = await sfn.send(
+    new StartExecutionCommand({
+      stateMachineArn: config.publishStateMachineArn,
+      name: `${id}-a1`,
+      input: JSON.stringify({
+        publication_id: id,
+        attempt: 1,
+        validation: { iteration: 0 },
+        wait_seconds: 1,
+        canvas_timeout_seconds: opts.canvasTimeout ?? 60,
+        transcode_timeout_seconds: 60,
+      }),
+    }),
+  );
+  sql(`UPDATE publication SET execution_arn = '${out.executionArn}' WHERE id = '${id}'`);
+  return { id, arn: out.executionArn! };
 }

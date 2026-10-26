@@ -43,6 +43,17 @@ export class PublicationsController {
     return this.publications.canvasUploaded(requireOwner(ownerId), publicationId, dto);
   }
 
+  @Post('publications/:publicationId/retry')
+  @HttpCode(202)
+  retry(@Headers('x-owner-id') ownerId: string | undefined, @Param('publicationId', new ParseUUIDPipe()) publicationId: string) {
+    return this.publications.retry(requireOwner(ownerId), publicationId);
+  }
+
+  @Get('drafts/:draftId/status')
+  draftStatus(@Headers('x-owner-id') ownerId: string | undefined, @Param('draftId', new ParseUUIDPipe()) draftId: string) {
+    return this.publications.draftStatus(requireOwner(ownerId), draftId);
+  }
+
   @Get('publications/:publicationId')
   get(@Headers('x-owner-id') ownerId: string | undefined, @Param('publicationId', new ParseUUIDPipe()) publicationId: string) {
     return this.publications.get(requireOwner(ownerId), publicationId);

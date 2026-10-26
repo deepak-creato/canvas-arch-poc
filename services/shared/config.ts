@@ -24,6 +24,7 @@ export const config = {
   publishMaxAssetPolls: int(process.env.PUBLISH_MAX_ASSET_POLLS, 30),
   publishCanvasTimeoutSeconds: int(process.env.PUBLISH_CANVAS_TIMEOUT_SECONDS, 900),
   publishTranscodeTimeoutSeconds: int(process.env.PUBLISH_TRANSCODE_TIMEOUT_SECONDS, 120),
+  publishMaxAttempts: int(process.env.PUBLISH_MAX_ATTEMPTS, 5),
   workerTestHooks: process.env.WORKER_TEST_HOOKS === 'true',
   transcodeLatencyMs: int(process.env.MOCK_TRANSCODE_LATENCY_MS, 1500),
   transcodeFixturePath: process.env.TRANSCODE_FIXTURE_PATH ?? '/fixtures/sample.mp4',

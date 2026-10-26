@@ -23,7 +23,7 @@ Quick reference for AI assistants. The authoritative version is section 6 of `Ca
 | Upload | `PENDING_UPLOAD` → `UPLOADED` → `VALIDATED`, or `REJECTED`; `EXPIRED` when abandoned |
 | Rendition | `NOT_REQUESTED` → `QUEUED` → `PROCESSING` → `READY`, or `FAILED` / `FAILED_PERMANENT` |
 | Retention | `UNATTACHED`, `REFERENCED`, `PUBLISHED`, `ORPHANED`, `DELETING`, `DELETED` |
-| Publication | `REQUESTED` → `WAITING_FOR_ASSETS` → `TRANSCODING` → `AWAITING_CANVAS` → `FINALIZING` → `LIVE`; `FAILED` on error |
+| Publication | `REQUESTED` → `WAITING_FOR_ASSETS` → `TRANSCODING` → `AWAITING_CANVAS` → `FINALIZING` → `LIVE`; `FAILED` on error; `POST ./retry` moves `FAILED` back to `REQUESTED` (new attempt, same row) |
 | Draft | `ACTIVE`, `PUBLISHING`, `PUBLISHED`, `DISCARDED`, optionally `DORMANT` / `PURGED` |
 
 ## Invariants

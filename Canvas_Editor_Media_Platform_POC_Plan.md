@@ -627,6 +627,10 @@ Upload / Dedup
 | Final image transforms         | May use Sharp to create real final WebP images; video finals are mock fixtures                |
 | UI updates                     | Poll API; defer WebSockets/SSE                                                                |
 | Large video multipart          | Defer unless fixtures require it; validate standard presigned PUT first                       |
+| Step Functions without Lambda  | Not enabled in LocalStack. Every workflow step is an SQS task-token message; `canvas-api` runs the step runner (`publish-tasks`), `mock-transcoder` answers `transcode-requests`. Same states and callbacks (M5 plan) |
+| Final tier scope               | Only videos get a final rendition (mock fixture at a deterministic key); images are published from the original |
+| Canvas upload endpoints        | Added `POST /v1/publications/{id}/canvas-upload` (fresh presigned URL) and `POST /v1/publications/{id}/retry`; the plan flow needed both |
+| Failed publication and draft   | Draft stays `PUBLISHING` while its publication is `FAILED`; retry on the same row is the way out. No un-freeze or cancel in the POC (open for M6/M7) |
 
 
 **Confidence level:** High for architecture coverage and milestone dependencies; medium for elapsed timeline until LocalStack support and team capacity are verified.

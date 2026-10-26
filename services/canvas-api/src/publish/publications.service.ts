@@ -1,12 +1,14 @@
 import { GetObjectCommand, HeadObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { BadRequestException, ConflictException, Inject, Injectable, NotFoundException, ServiceUnavailableException, UnprocessableEntityException } from '@nestjs/common';
-import { SFNClient } from '@aws-sdk/client-sfn';
+import { DescribeExecutionCommand, SFNClient } from '@aws-sdk/client-sfn';
 import { Pool, PoolClient } from 'pg';
 import { config } from '../../../shared/config';
 import { log } from '../../../shared/log';
 import { answerTask } from '../../../shared/sfn';
 import { PG_POOL, PRESIGN_S3, S3, SFN } from '../tokens';
+import { extractAssetIds } from '../../../shared/refs';
+import { assetReadiness } from './asset-readiness';
 import { CANVAS_TYPES, CanvasUploadDto, CanvasUploadedDto } from './canvas-upload.dto';
 import { CreatePublicationDto } from './create-publication.dto';
 import { PublishOrchestrator } from './orchestrator';
@@ -211,6 +213,108 @@ export class PublicationsService {
     }
     log('info', 'canvas upload confirmed', { ...ctx, bytes: head.ContentLength });
     return this.view(await this.findOwned(ownerId, publicationId));
+  }
+
+  /**
+   * Starts a new attempt of the same publication (never a second one). Allowed when the publication FAILED,
+   * or when it looks in flight but its execution is over (FAILED / TIMED_OUT / ABORTED), for example after a
+   * lost message. READY final renditions are reused; failed ones are redone. The canvas gate opens again: the
+   * client confirms with canvas-uploaded (a new upload is optional, the object is checked again).
+   */
+  async retry(ownerId: string, publicationId: string) {
+    let p = await this.findOwned(ownerId, publicationId);
+    if (p.status === 'LIVE') throw new ConflictException({ code: 'PUBLICATION_STATE', message: 'publication is already LIVE', status: p.status });
+
+    const startOnly = p.status === 'REQUESTED' && !p.execution_arn; // accepted but the workflow never started
+    if (!startOnly) {
+      let cause = p.failure_reason;
+      if (p.status !== 'FAILED') {
+        const state = await this.executionState(p.execution_arn);
+        if (state === 'RUNNING' || state === 'SUCCEEDED') {
+          throw new ConflictException({ code: 'PUBLICATION_IN_PROGRESS', message: `publication is ${p.status} and its workflow is ${state}`, status: p.status });
+        }
+        cause = `EXECUTION_${state}`;
+      }
+      if (p.attempt >= config.publishMaxAttempts) {
+        throw new ConflictException({ code: 'RETRIES_EXHAUSTED', message: `publication already had ${p.attempt} attempts`, attempt: p.attempt });
+      }
+      // The attempt number is the guard: of two simultaneous retries only one bumps it.
+      const bumped = (
+        await this.pool.query<PublicationRow>(
+          `WITH cur AS (SELECT id, status FROM publication WHERE id = $1 AND attempt = $2 FOR UPDATE),
+                upd AS (UPDATE publication p
+                           SET status = 'REQUESTED', attempt = p.attempt + 1, execution_arn = NULL, task_token = NULL, failure_reason = NULL
+                          FROM cur WHERE p.id = cur.id RETURNING p.*, cur.status AS from_status),
+                tr AS (INSERT INTO publication_transition (publication_id, from_status, to_status, step, detail)
+                       SELECT id, from_status, 'REQUESTED', 'RETRY', jsonb_build_object('attempt', attempt, 'previous', $3::text) FROM upd)
+           SELECT id, draft_id, revision_id, owner_id, status, idempotency_key, execution_arn, render_bucket, render_key, manifest_key,
+                  failure_reason, live_at, attempt, canvas_content_type, canvas_bytes, created_at, updated_at FROM upd`,
+          [p.id, p.attempt, cause],
+        )
+      ).rows[0];
+      if (bumped) log('info', 'publication retry', { publication_id: p.id, draft_id: p.draft_id, attempt: bumped.attempt, previous: cause });
+      p = bumped ?? (await this.findOwned(ownerId, publicationId));
+    }
+
+    if (!p.execution_arn && p.status === 'REQUESTED') {
+      try {
+        const arn = await this.orchestrator.start(p.id, p.attempt);
+        p = (await this.pool.query<PublicationRow>(`UPDATE publication SET execution_arn = $2 WHERE id = $1 RETURNING *`, [p.id, arn])).rows[0];
+      } catch (e) {
+        log('error', 'could not start publish workflow', { publication_id: p.id, error: String(e) });
+        throw new ServiceUnavailableException({ code: 'WORKFLOW_START_FAILED', message: 'retry accepted but the workflow did not start; repeat the request', publication_id: p.id });
+      }
+    }
+    return this.view(p);
+  }
+
+  private async revisionNo(revisionId: string): Promise<number> {
+    return (await this.pool.query<{ revision_no: number }>(`SELECT revision_no FROM canvas_revision WHERE id = $1`, [revisionId])).rows[0].revision_no;
+  }
+
+  private async executionState(arn: string | null): Promise<string> {
+    if (!arn) return 'ABORTED';
+    try {
+      return (await this.sfn.send(new DescribeExecutionCommand({ executionArn: arn }))).status ?? 'RUNNING';
+    } catch (e: any) {
+      // Step Functions has no record of it (for example after a LocalStack restart): nothing is running.
+      if (e?.name === 'ExecutionDoesNotExist') return 'ABORTED';
+      throw e;
+    }
+  }
+
+  /** Asset + publication roll-up for the test client: what is it waiting for, and what can it do next. */
+  async draftStatus(ownerId: string, draftId: string) {
+    const draft = (
+      await this.pool.query<{ id: string; status: string; head_revision_no: number }>(
+        `SELECT id, status, head_revision_no FROM canvas_draft WHERE id = $1 AND owner_id = $2`,
+        [draftId, ownerId],
+      )
+    ).rows[0];
+    if (!draft) throw new NotFoundException({ code: 'DRAFT_NOT_FOUND', message: 'draft not found' });
+    const pub = (await this.pool.query<PublicationRow>(`SELECT * FROM publication WHERE draft_id = $1`, [draft.id])).rows[0];
+    // The published snapshot if there is one, else the head.
+    const rev = (
+      await this.pool.query<{ revision_no: number; document: unknown }>(
+        `SELECT revision_no, document FROM canvas_revision WHERE draft_id = $1 AND revision_no = $2`,
+        [draft.id, pub ? (await this.revisionNo(pub.revision_id)) : draft.head_revision_no],
+      )
+    ).rows[0];
+    const assets = await assetReadiness(this.pool, extractAssetIds(rev.document));
+    const roll = (list: string[]) => (list.includes('FAILED') || list.includes('REJECTED') || list.includes('EXPIRED') ? 'FAILED' : list.every((s) => s === 'READY') ? 'READY' : 'PROCESSING');
+    return {
+      draft_id: draft.id,
+      draft_status: draft.status,
+      head_revision: draft.head_revision_no,
+      revision: rev.revision_no,
+      assets: assets.map((a) => ({ asset_id: a.id, kind: a.kind, processing_status: a.status, final_status: a.final_status, retention_status: a.retention_status })),
+      assets_status: roll(assets.map((a) => a.status)),
+      publication: pub
+        ? { publication_id: pub.id, status: pub.status, attempt: pub.attempt, failure_reason: pub.failure_reason, status_url: `/v1/publications/${pub.id}` }
+        : null,
+      can_publish: draft.status === 'ACTIVE' && !pub,
+      can_retry_publication: pub?.status === 'FAILED' && pub.attempt < config.publishMaxAttempts,
+    };
   }
 
   async findOwned(ownerId: string, publicationId: string, db: Pick<PoolClient, 'query'> = this.pool): Promise<PublicationRow> {

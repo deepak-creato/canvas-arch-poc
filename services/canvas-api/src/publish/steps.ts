@@ -5,9 +5,9 @@ import { config } from '../../../shared/config';
 import { planFinals } from '../../../shared/final-renditions';
 import { log } from '../../../shared/log';
 import { extractAssetIds } from '../../../shared/refs';
-import { rollUp } from '../assets/assets.service';
 import { contentHash } from '../drafts/canonical';
 import { PG_POOL, S3 } from '../tokens';
+import { assetReadiness } from './asset-readiness';
 import { StepError } from './errors';
 import { markPublicationLive } from './mark-live';
 import { transition } from './publication-state';
@@ -105,15 +105,7 @@ export class PublishSteps {
     const iteration = Number(msg.iteration ?? 0);
     if (assetIds.length === 0) return { ready: true, iteration, asset_ids: [] };
 
-    const assets = (
-      await this.pool.query<{ id: string; owner_id: string; upload_status: string; retention_status: string; derive_job: string | null; renditions: string[] }>(
-        `SELECT a.id, a.owner_id, a.upload_status, a.retention_status,
-                (SELECT j.status FROM processing_job j WHERE j.asset_id = a.id AND j.job_type IN ('image-derive', 'video-derive') LIMIT 1) AS derive_job,
-                COALESCE((SELECT array_agg(r.status) FROM media_rendition r WHERE r.asset_id = a.id AND r.tier = 'DRAFT'), '{}') AS renditions
-           FROM media_asset a WHERE a.id = ANY($1::uuid[])`,
-        [assetIds],
-      )
-    ).rows;
+    const assets = await assetReadiness(this.pool, assetIds);
     const byId = new Map(assets.map((a) => [a.id, a]));
     let pending = 0;
     for (const id of assetIds) {
@@ -121,11 +113,10 @@ export class PublishSteps {
       if (!a || a.owner_id !== p.owner_id || a.retention_status === 'DELETING' || a.retention_status === 'DELETED') {
         throw new StepError('ASSET_UNUSABLE', `asset ${id} is missing or deleted`);
       }
-      const status = rollUp(a.upload_status, a.derive_job ?? undefined, a.renditions);
-      if (status === 'REJECTED' || status === 'EXPIRED' || status === 'FAILED') {
-        throw new StepError('ASSET_UNUSABLE', `asset ${id} is ${status}`);
+      if (a.status === 'REJECTED' || a.status === 'EXPIRED' || a.status === 'FAILED') {
+        throw new StepError('ASSET_UNUSABLE', `asset ${id} is ${a.status}`);
       }
-      if (status !== 'READY') pending++;
+      if (a.status !== 'READY') pending++;
     }
     if (pending > 0) {
       if (iteration + 1 >= config.publishMaxAssetPolls) {
