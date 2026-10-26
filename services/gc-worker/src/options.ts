@@ -9,6 +9,8 @@ export interface GcOptions {
   uploadExpiryGraceSeconds: number;
   unattachedGraceSeconds: number;
   orphanGraceSeconds: number;
+  /** A QUEUED/FAILED job untouched this long no longer protects its asset (lost message). */
+  jobStaleSeconds: number;
   /** Newest N revisions of a draft are never pruned. */
   revisionKeepLast: number;
   /** Revisions younger than this are never pruned. */
@@ -22,6 +24,7 @@ export const defaultOptions = (over: Partial<GcOptions> = {}): GcOptions => ({
   uploadExpiryGraceSeconds: config.gcUploadExpiryGraceSeconds,
   unattachedGraceSeconds: config.gcUnattachedGraceSeconds,
   orphanGraceSeconds: config.gcOrphanGraceSeconds,
+  jobStaleSeconds: config.gcJobStaleSeconds,
   revisionKeepLast: config.gcRevisionKeepLast,
   revisionMinAgeSeconds: config.gcRevisionMinAgeSeconds,
   ...over,

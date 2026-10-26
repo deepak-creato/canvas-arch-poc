@@ -40,6 +40,7 @@ export const config = {
   gcUploadExpiryGraceSeconds: int(process.env.GC_UPLOAD_EXPIRY_GRACE_SECONDS, 600),
   gcUnattachedGraceSeconds: int(process.env.GC_UNATTACHED_GRACE_SECONDS, 24 * 3600),
   gcOrphanGraceSeconds: int(process.env.GC_ORPHAN_GRACE_SECONDS, 7 * 24 * 3600),
+  gcJobStaleSeconds: int(process.env.GC_JOB_STALE_SECONDS, 3600),
   gcRevisionKeepLast: int(process.env.GC_REVISION_KEEP_LAST, 20),
   gcRevisionMinAgeSeconds: int(process.env.GC_REVISION_MIN_AGE_SECONDS, 24 * 3600),
 };

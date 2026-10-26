@@ -80,6 +80,11 @@ async function claim(pool: Pool, id: string, o: GcOptions): Promise<boolean> {
       log('warn', 'orphan has references, not deleting', { asset_id: id });
       return false;
     }
+    if (await hasActiveJob(c, id, o.jobStaleSeconds)) {
+      await c.query('ROLLBACK');
+      log('info', 'asset has a job in progress, not deleting', { asset_id: id });
+      return false;
+    }
     await c.query(`UPDATE media_asset SET retention_status = 'DELETING', delete_attempts = 0, delete_error = NULL WHERE id = $1`, [id]);
     await c.query('COMMIT');
     log('info', 'asset deleting', { asset_id: id });
@@ -100,6 +105,27 @@ async function isReferenced(c: PoolClient, assetId: string): Promise<boolean> {
         `SELECT 1 WHERE EXISTS (SELECT 1 FROM media_reference WHERE asset_id = $1)
                      OR EXISTS (SELECT 1 FROM publication_asset WHERE asset_id = $1)`,
         [assetId],
+      )
+    ).rowCount === 1
+  );
+}
+
+/**
+ * Work that could still read or write the asset's objects: a RUNNING job with a live lease, or a
+ * job that will be (re)tried. A QUEUED/FAILED job nobody touched for `staleSeconds` no longer counts,
+ * otherwise a lost message would block deletion for good (the reaper in POC-035 deals with those jobs).
+ */
+export async function hasActiveJob(c: Pick<PoolClient, 'query'>, assetId: string, staleSeconds: number): Promise<boolean> {
+  return (
+    (
+      await c.query(
+        `SELECT 1 FROM processing_job
+          WHERE asset_id = $1
+            AND ((status = 'RUNNING' AND lease_expires_at > now())
+              OR (status IN ('QUEUED', 'FAILED') AND attempts < max_attempts
+                  AND updated_at > now() - make_interval(secs => $2)))
+          LIMIT 1`,
+        [assetId, staleSeconds],
       )
     ).rowCount === 1
   );

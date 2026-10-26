@@ -13,6 +13,7 @@ export const opts = (ownerId: string, over: Partial<GcOptions> = {}): GcOptions 
   uploadExpiryGraceSeconds: 0,
   unattachedGraceSeconds: 0,
   orphanGraceSeconds: 0,
+  jobStaleSeconds: 3600,
   revisionKeepLast: 1,
   revisionMinAgeSeconds: 0,
   ownerId,

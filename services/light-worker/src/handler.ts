@@ -24,8 +24,8 @@ export async function handleMessage(pool: Pool, s3: S3Client, body: string, mess
     return 'retry';
   }
 
-  const found = await pool.query<UploadAssetRow>(
-    `SELECT ${UPLOAD_ASSET_COLUMNS} FROM media_asset WHERE original_bucket = $1 AND original_key = $2`,
+  const found = await pool.query<UploadAssetRow & { retention_status: string }>(
+    `SELECT ${UPLOAD_ASSET_COLUMNS}, retention_status FROM media_asset WHERE original_bucket = $1 AND original_key = $2`,
     [ev.bucket, ev.key],
   );
   const asset = found.rows[0];
@@ -34,6 +34,12 @@ export async function handleMessage(pool: Pool, s3: S3Client, body: string, mess
     return 'ack';
   }
   const ctx = { asset_id: asset.id, correlation_id: messageId };
+
+  // GC owns the asset now (POC-033). Doing work would race the object deletes and could recreate files.
+  if (asset.retention_status === 'DELETING' || asset.retention_status === 'DELETED') {
+    log('warn', 'asset is being deleted, dropping event', { ...ctx, retention_status: asset.retention_status });
+    return 'ack';
+  }
 
   // The event can beat the API "complete" call; confirmUpload makes either order safe.
   const r = await confirmUpload(pool, s3, asset, messageId);
